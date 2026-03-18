@@ -1,0 +1,34 @@
+.yt-dlm-mini-btn {
+    position: absolute;
+    z-index: 999999;
+    background: rgba(17, 24, 39, 0.9); /* Premium dark */
+    backdrop-filter: blur(8px);
+    color: #ffffff !important;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-family: 'Outfit', 'Inter', sans-serif !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    cursor: pointer;
+    display: none;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,255,255,0.15) !important;
+    transition: all 0.3s ease;
+    pointer-events: auto;
+    text-decoration: none !important;
+    line-height: 1.2 !important;
+}
+
+.yt-dlm-mini-btn.visible {
+    display: block !important;
+}
+
+.yt-dlm-mini-btn:hover {
+    background: #1f2937;
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px rgba(0,0,0,0.6);
+}
+
+.yt-dlm-mini-btn i {
+    margin-right: 5px;
+}

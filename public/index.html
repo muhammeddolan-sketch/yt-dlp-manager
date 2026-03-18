@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YT-DLM UniDownloader</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="logo">
+                <i class="fas fa-arrow-down"></i>
+                <span>YT-DLM</span>
+            </div>
+            <nav>
+                <div class="nav-item active" data-view="all">
+                    <i class="fas fa-list"></i> Hepsi
+                </div>
+                <div class="nav-item" data-view="downloading">
+                    <i class="fas fa-download"></i> İndirilenler
+                </div>
+                <div class="nav-item" data-view="completed">
+                    <i class="fas fa-check-circle"></i> Tamamlananlar
+                </div>
+                <div class="nav-divider"></div>
+                <div class="nav-info">
+                    <p><i class="fas fa-puzzle-piece"></i> Web Eklentisi</p>
+                    <small>IDM gibi videonun üstünde çıkması için eklentiyi kurun.</small>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header>
+                <div class="search-bar">
+                    <input type="text" id="urlInput" placeholder="URL yapıştırın (YouTube, Twitter, vb.)">
+                    <button id="addBtn"><i class="fas fa-plus"></i> Ekle</button>
+                </div>
+            </header>
+
+            <section class="download-list" id="downloadList">
+                <!-- Downloads will appear here -->
+                <div class="empty-state">
+                    <i class="fas fa-cloud-download-alt"></i>
+                    <p>Henüz bir indirme yok. Bir URL ekleyerek başlayın!</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Info Modal -->
+    <div id="infoModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <div class="video-preview">
+                <img id="modalThumbnail" src="" alt="Thumbnail">
+                <div class="video-info">
+                    <h3 id="modalTitle">Video Başlığı</h3>
+                    <p id="modalUploader">Yükleyici</p>
+                    <p id="modalDuration">Süre: 00:00</p>
+                </div>
+            </div>
+            <div class="actions">
+                <button id="confirmDownload" class="btn-primary">İndirmeyi Başlat</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

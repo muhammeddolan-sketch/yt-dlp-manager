@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: rgba(17, 24, 39, 0.7); /* Glass dark */
+            backdrop-filter: blur(8px);
+            color: #ffffff;
+            font-family: 'Outfit', sans-serif;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            -webkit-app-region: drag;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.1, 1);
+        }
+        body:hover {
+            transform: scale(1.05);
+            background: #1f2937; /* Slightly lighter on hover */
+            box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+        }
+        .mini-btn {
+            font-size: 11px; /* Smaller font */
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            -webkit-user-select: none;
+            user-select: none;
+            opacity: 0.9;
+        }
+        .mini-btn i {
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="mini-btn">
+        <i class="fas fa-arrow-down"></i>
+        <span>YT-DLM</span>
+    </div>
+    <script>
+        const { ipcRenderer } = require('electron');
+        document.body.onclick = () => {
+             ipcRenderer.send('open-main');
+        };
+    </script>
+</body>
+</html>
