@@ -1,8 +1,8 @@
 [Desktop Entry]
 Name=YT-DLM
 Comment=Modern YouTube Downloader
-Exec=/home/slawn/.gemini/antigravity/scratch/yt-dlp-manager/start-yt-dlm.sh
-Icon=network-transmit
+Exec=/home/slawn/Projeler/yt-dlp-manager/start-yt-dlm.sh
+Icon=/home/slawn/Projeler/yt-dlp-manager/public/icon.png
 Terminal=false
 Type=Application
 Categories=Network;WebBrowser;

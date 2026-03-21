@@ -1,18 +1,19 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YT-DLM UniDownloader</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="i18n.js"></script>
 </head>
 <body>
     <div class="app-container">
         <aside class="sidebar">
             <div class="logo">
-                <i class="fas fa-arrow-down"></i>
+                <img src="icon.png" alt="YT-DLM Logo" style="width: 28px; height: 28px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">
                 <span>YT-DLM</span>
             </div>
             <nav>
@@ -26,26 +27,49 @@
                     <i class="fas fa-check-circle"></i> Tamamlananlar
                 </div>
                 <div class="nav-divider"></div>
-                <div class="nav-info">
-                    <p><i class="fas fa-puzzle-piece"></i> Web Eklentisi</p>
-                    <small>IDM gibi videonun üstünde çıkması için eklentiyi kurun.</small>
+                <div class="nav-item" id="openFolderGlobal">
+                    <i class="fas fa-folder-open"></i> Klasörü Aç
+                </div>
+                <div class="nav-item" id="clearCompletedBtn">
+                    <i class="fas fa-magic"></i> <span data-i18n="clear">Temizle</span>
+                </div>
+                <div class="nav-divider"></div>
+                <!-- Language Selector -->
+                <div style="padding: 0 15px; margin-top: 10px;">
+                    <select id="langSelect" style="width: 100%; padding: 4px; background: rgba(0,0,0,0.3); color: white; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem; cursor: pointer; outline: none;">
+                        <option value="tr">Türkçe 🇹🇷</option>
+                        <option value="en">English 🇺🇸</option>
+                    </select>
+                </div>
+                <div class="nav-divider" style="opacity: 0.3;"></div>
+                <!-- Mini info for web extension -->
+                <div style="padding: 10px; color: var(--text-dim); font-size: 0.75rem; text-align: center;">
+                    <i class="fas fa-eye"></i> <span data-i18n="clipboard_on">Pano: Açık</span><br/> <span data-i18n="clipboard_capturing">(Bağlantılar Yakalanıyor)</span>
                 </div>
             </nav>
+            <div style="flex: 1;"></div>
+            <div class="donate-container">
+                <button id="donateBtn" class="donate-btn">
+                    <i class="fas fa-heart"></i> Destek Ol
+                </button>
+            </div>
         </aside>
 
         <main class="main-content">
             <header>
                 <div class="search-bar">
-                    <input type="text" id="urlInput" placeholder="URL yapıştırın (YouTube, Twitter, vb.)">
-                    <button id="addBtn"><i class="fas fa-plus"></i> Ekle</button>
+                    <input type="text" id="urlInput" data-i18n="placeholder_url" placeholder="URL yapıştırın (Pano otomatik algılar)">
+                    <button id="addBtn"><i class="fas fa-plus"></i></button>
+                    <label style="display: flex; align-items: center; gap: 6px; margin-left: 10px; font-size: 0.8rem; color: var(--text-main); cursor: pointer; white-space: nowrap;">
+                        <input type="checkbox" id="isPlaylistCheck"> <span data-i18n="playlist">Çalma Listesi</span>
+                    </label>
                 </div>
             </header>
 
             <section class="download-list" id="downloadList">
-                <!-- Downloads will appear here -->
                 <div class="empty-state">
                     <i class="fas fa-cloud-download-alt"></i>
-                    <p>Henüz bir indirme yok. Bir URL ekleyerek başlayın!</p>
+                    <p data-i18n="no_downloads">Henüz bir indirme yok.</p>
                 </div>
             </section>
         </main>
@@ -58,13 +82,48 @@
             <div class="video-preview">
                 <img id="modalThumbnail" src="" alt="Thumbnail">
                 <div class="video-info">
-                    <h3 id="modalTitle">Video Başlığı</h3>
-                    <p id="modalUploader">Yükleyici</p>
-                    <p id="modalDuration">Süre: 00:00</p>
+                    <h3 id="modalTitle" data-i18n="video_title">Video Başlığı</h3>
+                    <p id="modalUploader" data-i18n="uploader">Yükleyici</p>
+                    <p id="modalDuration" data-i18n="duration">Süre: 00:00</p>
                 </div>
             </div>
+            <div class="quality-select">
+                <label for="qualityOption"><i class="fas fa-sliders-h"></i> <span data-i18n="quality">İndirme Kalitesi</span></label>
+                <select id="qualityOption">
+                    <option value="best" data-i18n="best">En İyi (Orijinal)</option>
+                    <option value="2160">2160p (4K)</option>
+                    <option value="1440">1440p (2K)</option>
+                    <option value="1080">1080p (FHD)</option>
+                    <option value="720">720p (HD)</option>
+                    <option value="480">480p (SD)</option>
+                    <option value="audio" data-i18n="audio">Sadece Ses (MP3)</option>
+                </select>
+            </div>
+            <div style="margin-top: 1rem; color: var(--text-dim); display: flex; gap: 1rem; font-size: 0.9rem;">
+                <label style="cursor: pointer;"><input type="checkbox" id="modalPlaylistCheck"> <span data-i18n="download_all_playlist">Tüm Listeyi İndir</span></label>
+                <label style="cursor: pointer;"><input type="checkbox" id="modalSubtitlesCheck"> <span data-i18n="embed_subtitles">Altyazıları Göm</span></label>
+            </div>
             <div class="actions">
-                <button id="confirmDownload" class="btn-primary">İndirmeyi Başlat</button>
+                <button id="confirmDownload" class="btn-primary" data-i18n="start_download">İndirmeyi Başlat</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Modal -->
+    <div id="detailsModal" class="modal">
+        <div class="modal-content" style="width: 450px;">
+            <span class="close-details" style="position: absolute; right: 1rem; top: 0.75rem; font-size: 1.25rem; cursor: pointer; color: var(--text-dim); transition: 0.2s;">&times;</span>
+            <div style="font-weight: 600; font-size: 1.05rem; margin-bottom: 5px;" data-i18n="details">İndirme Ayrıntıları</div>
+            <div id="detailsTitle" style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" data-i18n="loading">Yükleniyor...</div>
+            
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 15px; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px;">
+                <div style="text-align: center;"><div style="color: var(--text-dim); font-size: 0.75rem; margin-bottom: 4px;" data-i18n="speed">Anlık Hız</div><div id="detailsSpeed" style="font-weight: 600; color: var(--accent); font-size: 0.95rem;">--</div></div>
+                <div style="text-align: center;"><div style="color: var(--text-dim); font-size: 0.75rem; margin-bottom: 4px;" data-i18n="eta">Kalan Süre</div><div id="detailsEta" style="font-weight: 600; font-size: 0.95rem;">--:--</div></div>
+                <div style="text-align: center;"><div style="color: var(--text-dim); font-size: 0.75rem; margin-bottom: 4px;" data-i18n="progress">İlerleme</div><div id="detailsProg" style="font-weight: 600; font-size: 0.95rem;">%0</div></div>
+            </div>
+            
+            <div style="background: var(--sidebar-bg); border: 1px solid var(--border); border-radius: 8px; height: 160px; padding: 5px; position: relative;">
+                <canvas id="speedChart" style="width: 100%; height: 100%;"></canvas>
             </div>
         </div>
     </div>

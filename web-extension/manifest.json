@@ -1,23 +1,52 @@
 {
   "manifest_version": 3,
   "name": "YT-DLM Web Helper",
-  "version": "1.0",
+  "version": "1.4.3",
   "description": "IDM-style download button for YT-DLM",
-  "permissions": ["activeTab", "scripting"],
-  "content_scripts": [
+  "icons": {
+    "48": "icon48.png"
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "web_accessible_resources": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "css": ["content.css"]
+      "resources": ["icon48.png", "icon.png"],
+      "matches": ["<all_urls>"]
     }
   ],
-  "host_permissions": ["http://localhost:3000/*"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "contextMenus",
+    "notifications"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ]
+    }
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*",
+    "<all_urls>"
+  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "yt-dlm-downloader@slawn.local",
-      "strict_min_version": "140.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
   }

@@ -9,11 +9,13 @@ if (!gotTheLock) {
     app.quit();
 } else {
     app.on('second-instance', (event, commandLine, workingDirectory) => {
-        if (mainWindow) {
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.show();
-            mainWindow.focus();
-        }
+        try {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                if (mainWindow.isMinimized()) mainWindow.restore();
+                mainWindow.show();
+                mainWindow.focus();
+            }
+        } catch (e) {}
     });
 }
 
@@ -31,9 +33,10 @@ function startServer() {
 
 function createMainWindow() {
     mainWindow = new BrowserWindow({
-        width: 1200,
-        height: 800,
+        width: 750,
+        height: 550,
         title: "YT-DLM Downloader",
+        icon: path.join(__dirname, 'public', 'icon.png'),
         autoHideMenuBar: true,
         webPreferences: {
             nodeIntegration: true,
@@ -48,17 +51,17 @@ function createMainWindow() {
     mainWindow.on('close', (event) => {
         if (!isQuitting) {
             event.preventDefault();
-            mainWindow.hide();
+            try { if (!mainWindow.isDestroyed()) mainWindow.hide(); } catch(e) {}
         }
         return false;
     });
 
     mainWindow.on('hide', () => {
-        if (miniWindow) miniWindow.show();
+        // Disabled mini window popup when the main window hides
     });
 
     mainWindow.on('show', () => {
-        if (miniWindow) miniWindow.hide();
+        try { if (miniWindow && !miniWindow.isDestroyed()) miniWindow.hide(); } catch (e) {}
     });
 
     mainWindow.on('closed', () => {
@@ -75,15 +78,27 @@ function createTray() {
         { label: 'YT-DLM UniDownloader', enabled: false },
         { type: 'separator' },
         { label: 'Göster / Gizle', click: () => {
-            if (mainWindow.isVisible()) {
-                mainWindow.hide();
-            } else {
-                mainWindow.show();
-            }
+            try {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    if (mainWindow.isVisible()) {
+                        mainWindow.hide();
+                    } else {
+                        mainWindow.show();
+                    }
+                } else {
+                    createMainWindow();
+                }
+            } catch(e) {}
         }},
         { label: 'İndirmeleri Aç', click: () => {
-             mainWindow.show();
-             mainWindow.focus();
+            try {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.show();
+                    mainWindow.focus();
+                } else {
+                    createMainWindow();
+                }
+            } catch(e) {}
         }},
         { type: 'separator' },
         { label: 'Kapat', click: () => {
@@ -96,7 +111,13 @@ function createTray() {
     tray.setContextMenu(contextMenu);
 
     tray.on('double-click', () => {
-        mainWindow.show();
+        try {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.show();
+            } else {
+                createMainWindow();
+            }
+        } catch(e) {}
     });
 }
 
@@ -108,6 +129,7 @@ function createMiniWindow() {
         height: 45,
         x: width - 140,
         y: height - 60,
+        icon: path.join(__dirname, 'public', 'icon.png'),
         frame: false,
         transparent: true,
         alwaysOnTop: true,
@@ -121,14 +143,21 @@ function createMiniWindow() {
 
     miniWindow.loadFile(path.join(__dirname, 'public', 'mini.html'));
     miniWindow.hide(); // Start hidden
+
+    miniWindow.on('closed', () => {
+        miniWindow = null;
+    });
 }
 
 ipcMain.on('open-main', () => {
-    if (mainWindow) {
-        mainWindow.focus();
-    } else {
-        createMainWindow();
-    }
+    try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+            mainWindow.focus();
+        } else {
+            createMainWindow();
+        }
+    } catch(e) {}
 });
 
 app.on('ready', () => {
