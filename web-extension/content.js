@@ -86,7 +86,7 @@
     
     const titleDiv = document.createElement('div');
     titleDiv.style.cssText = "font-weight: 700; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; font-size: 15px; color: #60a5fa;";
-    titleDiv.textContent = "YT-DLM Pro v1.4.2";
+    titleDiv.textContent = "YT-DLM Pro v1.4.3";
     popup.appendChild(titleDiv);
 
     // Video Info Section
@@ -130,6 +130,9 @@
         opt.textContent = q.t;
         qualitySelect.appendChild(opt);
     });
+    qualitySelect.onchange = (e) => localStorage.setItem('yt-dlm-last-quality', e.target.value);
+    const lastQual = localStorage.getItem('yt-dlm-last-quality');
+    if (lastQual) qualitySelect.value = lastQual;
     popup.appendChild(qualitySelect);
 
     const optionsGrid = document.createElement('div');
@@ -166,6 +169,18 @@
     btnCancel.style.cssText = "background: rgba(248, 113, 113, 0.1); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); padding: 8px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 12px;";
     btnCancel.textContent = t('cancel');
     popup.appendChild(btnCancel);
+
+    // Auto Open Option
+    const autoOpenLabel = document.createElement('label');
+    autoOpenLabel.style.cssText = "display: flex; gap: 6px; align-items: center; cursor: pointer; color: #60a5fa; font-size: 11px; margin-top: 5px; justify-content: center;";
+    const autoOpenCheck = document.createElement('input');
+    autoOpenCheck.type = "checkbox";
+    autoOpenCheck.id = "yt-dlm-auto-open";
+    autoOpenCheck.checked = localStorage.getItem('yt-dlm-auto-open') === 'true';
+    autoOpenCheck.onchange = (e) => localStorage.setItem('yt-dlm-auto-open', e.target.checked);
+    autoOpenLabel.appendChild(autoOpenCheck);
+    autoOpenLabel.appendChild(document.createTextNode(lang === 'tr' ? "İnce bitince klasörü aç" : "Open folder when finished"));
+    popup.appendChild(autoOpenLabel);
 
     const progCont = document.createElement('div');
     progCont.id = "yt-dlm-progress-container";
@@ -332,6 +347,23 @@
 
     let pollTimer = null;
 
+    // Right-click for Quick Download
+    btn.oncontextmenu = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const videoUrl = window.location.href;
+        const quality = localStorage.getItem('yt-dlm-last-quality') || 'best';
+        const autoOpen = localStorage.getItem('yt-dlm-auto-open') === 'true';
+        
+        btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i>`;
+        bgFetch("http://127.0.0.1:3000/api/download", "POST", { 
+            url: videoUrl, title: document.title, quality: quality, autoOpen: autoOpen
+        }).then(() => {
+            btn.innerHTML = imgElement.outerHTML + `<span style="margin-left:8px; color:#4ade80;">✔</span>`;
+            setTimeout(() => { btn.innerHTML = imgElement.outerHTML + label.outerHTML; }, 2000);
+        });
+    };
+
     btn.onclick = (e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -365,11 +397,13 @@
         const isPlaylist = document.getElementById('yt-dlm-playlist').checked;
         const hasSubtitles = document.getElementById('yt-dlm-subs').checked;
         
+        const autoOpen = document.getElementById('yt-dlm-auto-open').checked;
+        
         btnStart.innerText = t('processing');
         btnStart.disabled = true;
         
         bgFetch("http://127.0.0.1:3000/api/download", "POST", { 
-            url: videoUrl, title: videoTitle.textContent, quality: quality, isPlaylist: isPlaylist, hasSubtitles: hasSubtitles 
+            url: videoUrl, title: videoTitle.textContent, quality: quality, isPlaylist: isPlaylist, hasSubtitles: hasSubtitles, autoOpen: autoOpen
         })
         .then(data => {
             btnStart.style.display = 'none';

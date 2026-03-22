@@ -54,19 +54,22 @@ app.post('/api/info', async (req, res) => {
 
 function startDownloadTask(id) {
     const dl = downloads[id];
-    let formatOption = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best';
-    if (dl.quality === '2160') formatOption = 'bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/best[height<=2160][ext=mp4]/best';
-    else if (dl.quality === '1440') formatOption = 'bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/best[height<=1440][ext=mp4]/best';
-    else if (dl.quality === '1080') formatOption = 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best';
-    else if (dl.quality === '720') formatOption = 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best';
-    else if (dl.quality === '480') formatOption = 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best';
+    let formatOption = 'bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/best[vcodec^=avc1][ext=mp4]/best[ext=mp4]/best';
+    if (dl.quality === '2160') formatOption = 'bestvideo[vcodec^=avc1][height<=2160][ext=mp4]+bestaudio[ext=m4a]/best[vcodec^=avc1][height<=2160][ext=mp4]/best[ext=mp4]/best';
+    else if (dl.quality === '1440') formatOption = 'bestvideo[vcodec^=avc1][height<=1440][ext=mp4]+bestaudio[ext=m4a]/best[vcodec^=avc1][height<=1440][ext=mp4]/best[ext=mp4]/best';
+    else if (dl.quality === '1080') formatOption = 'bestvideo[vcodec^=avc1][height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[vcodec^=avc1][height<=1080][ext=mp4]/best[ext=mp4]/best';
+    else if (dl.quality === '720') formatOption = 'bestvideo[vcodec^=avc1][height<=720][ext=mp4]+bestaudio[ext=m4a]/best[vcodec^=avc1][height<=720][ext=mp4]/best[ext=mp4]/best';
+    else if (dl.quality === '480') formatOption = 'bestvideo[vcodec^=avc1][height<=480][ext=mp4]+bestaudio[ext=m4a]/best[vcodec^=avc1][height<=480][ext=mp4]/best[ext=mp4]/best';
 
     let args = [
         '--newline',
         dl.isPlaylist ? '--yes-playlist' : '--no-playlist',
         '--progress',
         '--progress-template', '%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
-        '--restrict-filenames',
+        '--merge-output-format', 'mp4',
+        '--postprocessor-args', 'ffmpeg:-movflags +faststart',
+        '--embed-metadata',
+        '--embed-thumbnail',
         '-N', '16' // YT-DLP'nin IDM gibi çoklu bağlantıyla (Multi-thread) süper hızlı indirmesini sağlayan ayar
     ];
 
@@ -111,6 +114,13 @@ function startDownloadTask(id) {
         if (code === 0) {
             dl.status = 'completed';
             dl.progress = 100;
+            if (dl.autoOpen) {
+                let command;
+                if (process.platform === 'win32') command = `start "" "${DOWNLOADS_DIR}"`;
+                else if (process.platform === 'darwin') command = `open "${DOWNLOADS_DIR}"`;
+                else command = `xdg-open "${DOWNLOADS_DIR}"`;
+                exec(command, () => {});
+            }
         } else if (dl.status === 'paused') {
             // Stay paused
         } else {
@@ -121,7 +131,7 @@ function startDownloadTask(id) {
 }
 
 app.post('/api/download', (req, res) => {
-    const { url, title, quality, isPlaylist, hasSubtitles } = req.body;
+    const { url, title, quality, isPlaylist, hasSubtitles, autoOpen } = req.body;
     const id = Date.now().toString();
 
     downloads[id] = {
@@ -131,6 +141,7 @@ app.post('/api/download', (req, res) => {
         quality: quality || 'best',
         isPlaylist: !!isPlaylist,
         hasSubtitles: !!hasSubtitles,
+        autoOpen: !!autoOpen,
         progress: 0,
         speed: '0 KiB/s',
         eta: 'Hesaplanıyor...',

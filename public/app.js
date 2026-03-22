@@ -139,9 +139,13 @@ confirmDownload.onclick = async () => {
             title: currentVideoInfo.title,
             quality: qualityOption.value,
             isPlaylist: modalPlaylistCheck ? modalPlaylistCheck.checked : isPlaylistCheck.checked,
-            hasSubtitles: modalSubtitlesCheck ? modalSubtitlesCheck.checked : false
+            hasSubtitles: modalSubtitlesCheck ? modalSubtitlesCheck.checked : false,
+            autoOpen: document.getElementById('modalAutoOpenCheck').checked
         })
     });
+    
+    localStorage.setItem('yt_dlm_last_quality', qualityOption.value);
+    localStorage.setItem('yt_dlm_auto_open', document.getElementById('modalAutoOpenCheck').checked);
     
     infoModal.style.display = 'none';
     urlInput.value = '';
@@ -160,6 +164,14 @@ function showModal(info) {
     document.getElementById('modalTitle').innerText = info.title;
     document.getElementById('modalUploader').innerText = info.uploader || t('loading');
     document.getElementById('modalDuration').innerText = t('duration') + ': ' + (info.duration || '--:--');
+    
+    // Remember last preferences
+    const lastQual = localStorage.getItem('yt_dlm_last_quality');
+    if (lastQual) qualityOption.value = lastQual;
+    
+    const autoOpen = localStorage.getItem('yt_dlm_auto_open') === 'true';
+    document.getElementById('modalAutoOpenCheck').checked = autoOpen;
+
     infoModal.style.display = 'block';
 }
 

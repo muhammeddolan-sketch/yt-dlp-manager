@@ -39,7 +39,8 @@ const translations = {
         cancel: "İptal",
         close: "Kapat",
         success: "Tamamlandı!",
-        error_server: "Hata alınamadı veya sunucu kapalı."
+        error_server: "Hata alınamadı veya sunucu kapalı.",
+        auto_open: "İşlem Bitince Klasörü Aç"
     },
     en: {
         app_title: "YT-DLM UniDownloader",
@@ -81,7 +82,8 @@ const translations = {
         cancel: "Cancel",
         close: "Close",
         success: "Completed!",
-        error_server: "Failed to get info or server is down."
+        error_server: "Failed to get info or server is down.",
+        auto_open: "Open Folder on Completion"
     }
 };
 
