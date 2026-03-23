@@ -1,457 +1,319 @@
 (function() {
-    'use strict';
-
-    const messages = {
-        tr: { 
-            download: "İndir", quality: "Orijinal Kalite", playlist: "Çalma Listesi", subtitles: "Altyazıları İndir", 
-            cancel: "İptal", close: "Kapat", error: "Hata oluştu!", connecting: "Bağlanıyor...", 
-            processing: "İşleniyor...", completed: "Tamamlandı!", downloading: "İndiriliyor...",
-            server_error: "Hata alınamadı veya sunucu kapalı."
-        },
-        en: { 
-            download: "Download", quality: "Original Quality", playlist: "Playlist", subtitles: "Download Subtitles", 
-            cancel: "Cancel", close: "Close", error: "Error occurred!", connecting: "Connecting...", 
-            processing: "Processing...", completed: "Completed!", downloading: "Downloading...",
-            server_error: "Failed to get info or server is down."
-        }
-    };
-    const lang = navigator.language.startsWith('tr') ? 'tr' : 'en';
-    const t = (key) => messages[lang][key] || key;
+    // YT-DLM Pro v1.4.6 Content Script
+    // Highly optimized for performance and snappiness
     
-    // Firefox/Mozilla Shim
-    const myBrowser = typeof browser !== 'undefined' ? browser : chrome;
-    console.log("YT-DLM Extension Loaded (Zen/Firefox Mode)");
+    const messages = {
+        tr: { download: "İndir", quality: "Kalite", processing: "Hazırlanıyor...", playlist: "Çalma Listesi", auto_open: "Klasörü Aç", speed: "Hız", eta: "Süre", close: "Kapat", completed: "Tamamlandı!", error: "Hata!", start_time: "Başlangıç", end_time: "Bitiş (opsiyonel)" },
+        en: { download: "Download", quality: "Quality", processing: "Processing...", playlist: "Playlist", auto_open: "Open Folder", speed: "Speed", eta: "ETA", close: "Close", completed: "Completed!", error: "Error!", start_time: "Start Time", end_time: "End (optional)" }
+    };
 
-    function bgFetch(url, method = 'GET', data = null) {
+    const userLang = navigator.language.split('-')[0];
+    const t = (key) => (messages[userLang] || messages['en'])[key];
+    const myBrowser = typeof browser !== 'undefined' ? browser : chrome;
+    let currentVideoInfo = null;
+
+    async function bgFetch(url, options = {}) {
         return new Promise((resolve, reject) => {
-            myBrowser.runtime.sendMessage({ url, method, data }, (response) => {
-                if (chrome.runtime.lastError) reject(chrome.runtime.lastError.message);
-                else if (response && response.error) reject(response.error);
+            myBrowser.runtime.sendMessage({ type: 'fetch', url, options }, response => {
+                if (myBrowser.runtime.lastError) reject(myBrowser.runtime.lastError);
                 else resolve(response);
             });
         });
     }
 
-    let activeVideo = null;
+    // Helper for fast style/class management
+    const setVisible = (el, show) => { el.style.display = show ? (el.dataset.display || 'flex') : 'none'; };
+
+    // Snappy UI Creation
     const btn = document.createElement('div');
     btn.className = 'yt-dlm-mini-btn';
+    btn.dataset.display = 'flex';
     
-    // Logo implementation
-    const logoUrl = myBrowser?.runtime?.getURL ? myBrowser.runtime.getURL('icon48.png') : "http://localhost:3000/icon.png";
     const imgElement = document.createElement('img');
-    imgElement.src = logoUrl;
-    imgElement.style.cssText = "width: 22px; height: 22px; display: block; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.4));";
-    imgElement.alt = ""; 
-    
+    imgElement.src = myBrowser.runtime.getURL('icon.png');
+    imgElement.style.cssText = 'width:16px; height:16px; pointer-events:none;';
+
     const label = document.createElement('span');
     label.innerText = t('download');
-    label.style.cssText = "margin-left: 8px; font-weight: 700; color: white; display: block; white-space: nowrap;";
 
-    btn.appendChild(imgElement);
-    btn.appendChild(label);
-
-    btn.style.cssText = `
-        position: fixed;
-        z-index: 2147483647;
-        background: rgba(15, 23, 42, 0.9);
-        backdrop-filter: blur(8px);
-        padding: 5px 12px;
-        border-radius: 8px;
-        border: 1px solid rgba(255,255,255,0.2);
-        cursor: pointer;
-        display: none;
-        align-items: center;
-        transition: transform 0.2s, background 0.2s;
-        pointer-events: auto;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        font-size: 13px;
-        color: white;
-    `;
-
+    btn.append(imgElement, label);
     document.body.appendChild(btn);
-    
-    // Quality & Settings Modal (Enhanced v1.4.2)
+
+    // Popup Creation
     const popup = document.createElement('div');
-    popup.id = 'yt-dlm-popup';
-    popup.style.cssText = `
-        position: fixed; z-index: 2147483648; display: none;
-        background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(12px);
-        color: white; padding: 15px; border-radius: 12px;
-        flex-direction: column; gap: 12px; border: 1px solid rgba(255,255,255,0.15);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        min-width: 240px; box-shadow: 0 15px 30px rgba(0,0,0,0.7); 
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    `;
+    popup.className = 'yt-dlm-popup';
     
     const titleDiv = document.createElement('div');
-    titleDiv.style.cssText = "font-weight: 700; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; font-size: 15px; color: #60a5fa;";
-    titleDiv.textContent = "YT-DLM Pro v1.4.3";
-    popup.appendChild(titleDiv);
-
-    // Video Info Section
+    titleDiv.className = 'ytdlm-title-wrap';
+    const nameSpan = document.createElement('span');
+    nameSpan.innerText = 'YT-DLM Pro';
+    const verSpan = document.createElement('span');
+    verSpan.innerText = 'v1.4.6';
+    titleDiv.append(nameSpan, verSpan);
+    
     const infoSection = document.createElement('div');
-    infoSection.style.cssText = "display: flex; flex-direction: column; gap: 8px; font-size: 12px;";
-    
+    infoSection.className = 'ytdlm-info-wrap';
     const thumbnail = document.createElement('img');
-    thumbnail.id = "yt-dlm-thumb";
-    thumbnail.style.cssText = "width: 100%; height: 110px; border-radius: 8px; object-fit: cover; display: none; border: 1px solid rgba(255,255,255,0.1);";
-    infoSection.appendChild(thumbnail);
-    
+    thumbnail.className = 'ytdlm-thumb';
+    const infoText = document.createElement('div');
+    infoText.style.flex = '1';
     const videoTitle = document.createElement('div');
-    videoTitle.id = "yt-dlm-title";
-    videoTitle.style.cssText = "font-weight: 600; color: white; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4;";
-    videoTitle.textContent = "...";
-    infoSection.appendChild(videoTitle);
-
+    videoTitle.className = 'ytdlm-video-title';
     const videoSub = document.createElement('div');
-    videoSub.id = "yt-dlm-duration";
-    videoSub.style.cssText = "opacity: 0.6; font-size: 11px;";
-    videoSub.textContent = t('processing');
-    infoSection.appendChild(videoSub);
-
-    popup.appendChild(infoSection);
+    videoSub.className = 'ytdlm-video-sub';
+    
+    infoText.append(videoTitle, videoSub);
+    infoSection.append(thumbnail, infoText);
 
     const qualitySelect = document.createElement('select');
-    qualitySelect.id = "yt-dlm-quality";
-    qualitySelect.style.cssText = "background: #1e293b; color: white; border: 1px solid #334155; padding: 8px; border-radius: 8px; outline: none; cursor: pointer; font-size: 13px;";
-    const qualities = [
-        { v: "best", t: t('quality') },
-        { v: "2160", t: "2160p (4K)" },
-        { v: "1440", t: "1440p (2K)" },
-        { v: "1080", t: "1080p" },
-        { v: "720", t: "720p" },
-        { v: "480", t: "480p" },
-        { v: "audio", t: "Audio Only (.m4a)" }
-    ];
-    qualities.forEach(q => {
+    [
+        {v: 'best', t: 'Best / Original'},
+        {v: '2160', t: '4K (2160p)'},
+        {v: '1440', t: '2K (1440p)'},
+        {v: '1080', t: 'HD (1080p)'},
+        {v: '720', t: 'SD (720p)'},
+        {v: 'audio', t: 'Audio Only (MP3)'}
+    ].forEach(q => {
         const opt = document.createElement('option');
-        opt.value = q.v;
-        opt.textContent = q.t;
+        opt.value = q.v; opt.innerText = q.t;
         qualitySelect.appendChild(opt);
     });
-    qualitySelect.onchange = (e) => localStorage.setItem('yt-dlm-last-quality', e.target.value);
-    const lastQual = localStorage.getItem('yt-dlm-last-quality');
-    if (lastQual) qualitySelect.value = lastQual;
-    popup.appendChild(qualitySelect);
 
     const optionsGrid = document.createElement('div');
-    optionsGrid.style.cssText = "display: flex; justify-content: space-between; gap: 10px;";
-
-    const playlistLabel = document.createElement('label');
-    playlistLabel.style.cssText = "display: flex; gap: 6px; align-items: center; cursor: pointer; color: #cbd5e1; font-size: 11px;";
-    const playlistCheck = document.createElement('input');
-    playlistCheck.type = "checkbox";
-    playlistCheck.id = "yt-dlm-playlist";
-    playlistLabel.appendChild(playlistCheck);
-    playlistLabel.appendChild(document.createTextNode(t('playlist')));
-    optionsGrid.appendChild(playlistLabel);
-
-    const subsLabel = document.createElement('label');
-    subsLabel.style.cssText = "display: flex; gap: 6px; align-items: center; cursor: pointer; color: #cbd5e1; font-size: 11px;";
-    const subsCheck = document.createElement('input');
-    subsCheck.type = "checkbox";
-    subsCheck.id = "yt-dlm-subs";
-    subsLabel.appendChild(subsCheck);
-    subsLabel.appendChild(document.createTextNode(t('subtitles')));
-    optionsGrid.appendChild(subsLabel);
+    optionsGrid.className = 'ytdlm-opts';
     
-    popup.appendChild(optionsGrid);
+    const createCheck = (text, checked, id) => {
+        const lbl = document.createElement('label');
+        lbl.className = 'ytdlm-opt-lbl';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox'; chk.checked = checked; chk.id = id;
+        lbl.append(chk, document.createTextNode(text));
+        return { lbl, chk };
+    };
 
+    const { lbl: plLbl, chk: plChk } = createCheck(t('playlist'), false, 'ytdlm-pl');
+    const { lbl: autoLbl, chk: autoChk } = createCheck(t('auto_open'), true, 'ytdlm-auto');
+    autoLbl.style.fontSize = '11px'; autoLbl.style.color = 'var(--ytdlm-dim)'; autoLbl.style.gridColumn = 'span 2';
+
+    optionsGrid.append(plLbl, autoLbl);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'ytdlm-btn-row';
     const btnStart = document.createElement('button');
-    btnStart.id = "yt-dlm-start";
-    btnStart.style.cssText = "background: #60a5fa; color: #0f172a; border: none; padding: 10px; border-radius: 8px; font-weight: 800; cursor: pointer; transition: 0.2s; font-size: 14px; margin-top: 5px;";
-    btnStart.textContent = t('download');
-    popup.appendChild(btnStart);
-
+    btnStart.className = 'yt-dlm-btn-primary';
+    btnStart.innerText = t('download');
     const btnCancel = document.createElement('button');
-    btnCancel.id = "yt-dlm-cancel";
-    btnCancel.style.cssText = "background: rgba(248, 113, 113, 0.1); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); padding: 8px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 12px;";
-    btnCancel.textContent = t('cancel');
-    popup.appendChild(btnCancel);
-
-    // Auto Open Option
-    const autoOpenLabel = document.createElement('label');
-    autoOpenLabel.style.cssText = "display: flex; gap: 6px; align-items: center; cursor: pointer; color: #60a5fa; font-size: 11px; margin-top: 5px; justify-content: center;";
-    const autoOpenCheck = document.createElement('input');
-    autoOpenCheck.type = "checkbox";
-    autoOpenCheck.id = "yt-dlm-auto-open";
-    autoOpenCheck.checked = localStorage.getItem('yt-dlm-auto-open') === 'true';
-    autoOpenCheck.onchange = (e) => localStorage.setItem('yt-dlm-auto-open', e.target.checked);
-    autoOpenLabel.appendChild(autoOpenCheck);
-    autoOpenLabel.appendChild(document.createTextNode(lang === 'tr' ? "İnce bitince klasörü aç" : "Open folder when finished"));
-    popup.appendChild(autoOpenLabel);
+    btnCancel.className = 'yt-dlm-btn-secondary';
+    btnCancel.innerText = t('close');
+    btnRow.append(btnStart, btnCancel);
 
     const progCont = document.createElement('div');
-    progCont.id = "yt-dlm-progress-container";
-    progCont.style.cssText = "display: none; flex-direction: column; gap: 5px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;";
-    
+    progCont.className = 'ytdlm-prog-cont';
+    progCont.dataset.display = 'flex';
     const progInfo = document.createElement('div');
-    progInfo.style.cssText = "font-size: 11px; color: #cbd5e1; display: flex; justify-content: space-between;";
-    const progText = document.createElement('span');
-    progText.id = "yt-dlm-prog-text";
-    progText.style.cssText = "white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;";
-    progText.textContent = t('connecting');
+    progInfo.className = 'ytdlm-prog-info';
     const progPct = document.createElement('span');
-    progPct.id = "yt-dlm-prog-pct";
-    progPct.textContent = "%0";
-    progInfo.appendChild(progText);
-    progInfo.appendChild(progPct);
-    
+    const progSpeed = document.createElement('span');
+    progInfo.append(progPct, progSpeed);
     const progOuter = document.createElement('div');
-    progOuter.style.cssText = "width: 100%; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;";
+    progOuter.className = 'ytdlm-prog-outer';
     const progBar = document.createElement('div');
-    progBar.id = "yt-dlm-prog-bar";
-    progBar.style.cssText = "width: 0%; height: 100%; background: #60a5fa; transition: width 0.3s, background 0.3s;";
+    progBar.className = 'yt-dlm-progress-bar';
     progOuter.appendChild(progBar);
-    
-    progCont.appendChild(progInfo);
-    progCont.appendChild(progOuter);
-    popup.appendChild(progCont);
+    progCont.append(progInfo, progOuter);
 
+    // Trimming UI
+    const trimGrid = document.createElement('div');
+    trimGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 5px;';
+    
+    const createTimeInput = (labelPlaceholder, id) => {
+        const inp = document.createElement('input');
+        inp.className = 'yt-dlm-input-small';
+        inp.placeholder = labelPlaceholder;
+        inp.title = 'HH:MM:SS or SS';
+        inp.id = id;
+        return inp;
+    };
+
+    const startTimeInp = createTimeInput(t('start_time'), 'ytdlm-start');
+    const endTimeInp = createTimeInput(t('end_time'), 'ytdlm-end');
+    trimGrid.append(startTimeInp, endTimeInp);
+
+    popup.append(titleDiv, infoSection, qualitySelect, trimGrid, optionsGrid, btnRow, progCont);
     document.body.appendChild(popup);
 
-    function loadVideoInfo(url) {
-        thumbnail.style.display = 'none';
-        videoTitle.textContent = "...";
-        videoSub.textContent = t('processing');
-        btnStart.disabled = true;
+    // Logic
+    let pollTimer = null;
+    let lastUrl = null;
+    let targetDownloadUrl = window.location.href;
 
-        bgFetch("http://127.0.0.1:3000/api/info", "POST", { url: url })
-        .then(info => {
-            if (info.thumbnail) {
-                thumbnail.src = info.thumbnail;
-                thumbnail.style.display = 'block';
+    function getBestVideo() {
+        if (window.location.hostname.includes('youtube.com')) {
+            if (!window.location.pathname.startsWith('/watch') && !window.location.pathname.startsWith('/shorts')) {
+                return null;
             }
-            videoTitle.textContent = info.title;
-            // Store real URL for the download if it was a context menu link
-            videoTitle.setAttribute('data-url', url);
-            videoSub.textContent = `${info.uploader || '--'} • ${info.duration || '--'}`;
-            btnStart.disabled = false;
-        })
-        .catch(err => {
-            videoTitle.textContent = t('error');
-            videoSub.textContent = err.message || t('server_error');
-        });
-    }
-
-    // Listen for triggers
-    myBrowser.runtime.onMessage.addListener((request) => {
-        if (request.action === "trigger_download") {
-            popup.style.top = '50px';
-            popup.style.left = (window.innerWidth / 2 - 120) + 'px';
-            popup.style.display = 'flex';
-            btn.style.display = 'none';
-            loadVideoInfo(request.url);
+            const mainVideo = document.querySelector('video.html5-main-video');
+            if (mainVideo && mainVideo.isConnected) return mainVideo;
         }
-    });
 
-    // More aggressive video detection including shadow roots if needed
-    // Faster video detection
-    function getAllVideos() {
-        // Direct light DOM videos are most common
-        let videos = Array.from(document.querySelectorAll('video'));
-        
-        // Specific check for YouTube and other common players
-        const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-        if (player) {
-            const pv = player.querySelectorAll('video');
-            pv.forEach(v => { if (!videos.includes(v)) videos.push(v); });
+        const videos = document.querySelectorAll('video');
+        let best = null, maxArea = 0;
+        for (let v of videos) {
+            if (!v.isConnected) continue;
+            const rect = v.getBoundingClientRect();
+            // Skip if almost entirely offscreen
+            if (rect.top >= window.innerHeight - 20 || rect.bottom <= 20 || rect.left >= window.innerWidth - 20 || rect.right <= 20) continue;
+            const area = rect.width * rect.height;
+            if (area > maxArea && area > 5000) { 
+                maxArea = area;
+                best = v;
+            }
         }
-        
-        return videos.filter(v => v.isConnected && v.offsetWidth > 0 && v.offsetHeight > 0);
+        return best;
     }
 
     function updatePosition() {
-        if (!activeVideo || !activeVideo.isConnected) {
-            if (popup.style.display === 'none') btn.style.display = 'none';
+        const video = getBestVideo();
+        if (!video) {
+            setVisible(btn, false);
             return;
         }
 
-        // Ensure button is always in the highest container for visibility (highest z-index)
-        const playerContainer = activeVideo.closest('#movie_player') || activeVideo.closest('.html5-video-player') || activeVideo.parentElement || document.body;
-        
-        if (btn.parentElement !== playerContainer) {
-            playerContainer.appendChild(btn);
-            btn.style.position = playerContainer === document.body ? 'fixed' : 'absolute';
-            btn.style.zIndex = "2147483647"; 
-        }
+        const rect = video.getBoundingClientRect();
+        setVisible(btn, true);
+        btn.style.top = Math.round(rect.top + 15) + 'px';
+        btn.style.left = Math.round(rect.left + (rect.width / 2) - 50) + 'px';
+        btn.style.zIndex = '9999999';
 
-        const rect = activeVideo.getBoundingClientRect();
-        const containerRect = btn.parentElement.getBoundingClientRect();
-        
-        // Don't show if video is not currently visible
-        if (rect.width === 0 || rect.height === 0) {
-            if (popup.style.display === 'none') btn.style.display = 'none';
-            return;
+        const url = window.location.href;
+        if (url !== lastUrl) {
+            lastUrl = url;
+            plChk.checked = url.includes('&list=');
         }
-        
-        // Calculate relative position based on parent container
-        let top, left;
-        const buttonWidth = btn.offsetWidth || 80;
-
-        if (btn.style.position === 'absolute' && btn.parentElement !== document.body) {
-            top = Math.max(10, (rect.top - containerRect.top) + 10);
-            left = Math.min((rect.width - buttonWidth - 10), (rect.left - containerRect.left) + rect.width - buttonWidth - 10);
-        } else {
-            top = Math.max(10, rect.top + 10);
-            left = Math.min(window.innerWidth - buttonWidth - 10, rect.left + rect.width - buttonWidth - 10);
-        }
-        
-        btn.style.top = top + 'px';
-        btn.style.left = left + 'px';
-        
-        if (popup.style.display === 'none') btn.style.display = 'flex';
     }
 
-    // Faster polling (500ms) for better navigation response
-    setInterval(() => {
-        const videos = getAllVideos();
-        if (videos.length > 0) {
-            // Sort by size (largest first)
-            videos.sort((a, b) => (b.offsetWidth * b.offsetHeight) - (a.offsetWidth * a.offsetHeight));
-            activeVideo = videos[0];
-            if (popup.style.display === 'none') {
-                updatePosition();
+    setInterval(updatePosition, 150);
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, { passive: true });
+
+    async function loadInfo() {
+        try {
+            const data = await bgFetch(`https://noembed.com/embed?url=${encodeURIComponent(targetDownloadUrl)}`);
+            if (data.title) {
+                currentVideoInfo = { title: data.title, thumbnail: data.thumbnail_url, author: data.author_name };
+                videoTitle.innerText = data.title;
+                try { videoSub.innerText = data.author_name || new URL(targetDownloadUrl).hostname; } catch(e) { videoSub.innerText = 'Media'; }
+                thumbnail.src = data.thumbnail_url || '';
+            } else {
+                throw new Error("No data");
             }
-        } else {
-            activeVideo = null;
-            if (popup.style.display === 'none') {
-                btn.style.display = 'none';
-            }
+        } catch(e) {
+            currentVideoInfo = null;
+            videoTitle.innerText = document.title || 'Video / Media';
+            try { videoSub.innerText = new URL(targetDownloadUrl).hostname; } catch(err) { videoSub.innerText = 'Unknown Site'; }
+            thumbnail.src = ''; 
         }
-    }, 500);
-
-    window.addEventListener('scroll', () => { if (popup.style.display === 'none') updatePosition(); }, true);
-    window.addEventListener('resize', () => { if (popup.style.display === 'none') updatePosition(); }, true);
-
-    btn.onmouseover = () => {
-        btn.style.transform = 'scale(1.05)';
-        btn.style.background = 'rgba(30, 41, 59, 0.95)';
-    };
-    btn.onmouseout = () => {
-        btn.style.transform = 'scale(1)';
-        btn.style.background = 'rgba(15, 23, 42, 0.9)';
-    };
-    
-    btn.onclick = (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        
-        const rect = btn.getBoundingClientRect();
-        popup.style.top = rect.top + 'px';
-        popup.style.left = (rect.left - 180) + 'px';
-        popup.style.display = 'flex';
-        btn.style.display = 'none';
-    };
-
-    let pollTimer = null;
-
-    // Right-click for Quick Download
-    btn.oncontextmenu = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const videoUrl = window.location.href;
-        const quality = localStorage.getItem('yt-dlm-last-quality') || 'best';
-        const autoOpen = localStorage.getItem('yt-dlm-auto-open') === 'true';
-        
-        btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i>`;
-        bgFetch("http://127.0.0.1:3000/api/download", "POST", { 
-            url: videoUrl, title: document.title, quality: quality, autoOpen: autoOpen
-        }).then(() => {
-            btn.innerHTML = imgElement.outerHTML + `<span style="margin-left:8px; color:#4ade80;">✔</span>`;
-            setTimeout(() => { btn.innerHTML = imgElement.outerHTML + label.outerHTML; }, 2000);
-        });
-    };
+    }
 
     btn.onclick = (e) => {
         e.stopPropagation();
-        e.preventDefault();
-        
+        targetDownloadUrl = window.location.href;
         const rect = btn.getBoundingClientRect();
-        popup.style.top = Math.min(window.innerHeight - 450, rect.top) + 'px';
-        popup.style.left = Math.max(10, rect.left - 250) + 'px';
-        popup.style.display = 'flex';
-        btn.style.display = 'none';
+        setVisible(popup, true);
+        popup.style.top = Math.min(window.innerHeight - 360, Math.round(rect.top + 40)) + 'px';
+        popup.style.left = Math.max(10, Math.round(rect.left - 200)) + 'px';
         
-        loadVideoInfo(window.location.href);
-    };
-
-    btnCancel.onclick = () => {
-        popup.style.display = 'none';
-        btn.style.display = 'flex';
-        if (pollTimer) clearInterval(pollTimer);
-        progCont.style.display = 'none';
-        btnStart.style.display = 'block';
-        btnCancel.textContent = t('cancel');
-        btnStart.textContent = t('download');
+        loadInfo();
+        setVisible(btnStart, true);
         btnStart.disabled = false;
+        btnStart.innerText = t('download');
+        setVisible(progCont, false);
+        if (pollTimer) clearInterval(pollTimer);
     };
 
-    btnStart.onmouseover = () => btnStart.style.background = '#93c5fd';
-    btnStart.onmouseout = () => btnStart.style.background = '#60a5fa';
+    btnCancel.onclick = () => { setVisible(popup, false); if (pollTimer) clearInterval(pollTimer); };
 
-    btnStart.onclick = () => {
-        const videoUrl = videoTitle.getAttribute('data-url') || window.location.href;
-        const quality = document.getElementById('yt-dlm-quality').value;
-        const isPlaylist = document.getElementById('yt-dlm-playlist').checked;
-        const hasSubtitles = document.getElementById('yt-dlm-subs').checked;
-        
-        const autoOpen = document.getElementById('yt-dlm-auto-open').checked;
-        
-        btnStart.innerText = t('processing');
+    btnStart.onclick = async () => {
         btnStart.disabled = true;
-        
-        bgFetch("http://127.0.0.1:3000/api/download", "POST", { 
-            url: videoUrl, title: videoTitle.textContent, quality: quality, isPlaylist: isPlaylist, hasSubtitles: hasSubtitles, autoOpen: autoOpen
-        })
-        .then(data => {
-            btnStart.style.display = 'none';
-            btnCancel.textContent = t('close');
-            
-            progCont.style.display = 'flex';
-            progBar.style.width = '0%';
-            progBar.style.background = '#60a5fa';
-            
-            pollTimer = setInterval(() => {
-                bgFetch(`http://127.0.0.1:3000/api/status/${data.id}`, 'GET')
-                .then(dl => {
-                    if (dl.error || !dl.id) return;
-                    progPct.innerText = `%${dl.progress || 0}`;
-                    progBar.style.width = `${dl.progress || 0}%`;
+        btnStart.innerText = t('processing');
+
+        try {
+            const res = await bgFetch(`http://localhost:3000/api/download`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: targetDownloadUrl,
+                    title: currentVideoInfo ? currentVideoInfo.title : (document.title || 'Video Media').replace(' - YouTube', ''),
+                    quality: qualitySelect.value,
+                    isPlaylist: plChk.checked,
+                    autoOpen: autoChk.checked,
+                    startTime: startTimeInp.value.trim() || null,
+                    endTime: endTimeInp.value.trim() || null
+                })
+            });
+
+            if (res && res.id) {
+                setVisible(btnStart, false);
+                setVisible(progCont, true);
+                progBar.style.width = '0%';
+                
+                pollTimer = setInterval(async () => {
+                    const dl = await bgFetch(`http://localhost:3000/api/status/${res.id}`);
+                    if (!dl || dl.error) { 
+                        clearInterval(pollTimer); 
+                        btnStart.disabled = false;
+                        setVisible(btnStart, true);
+                        setVisible(progCont, false);
+                        return; 
+                    }
                     
                     if (dl.status === 'completed') {
                         clearInterval(pollTimer);
-                        progText.innerText = t('completed');
-                        progBar.style.background = '#4ade80';
-                        
-                        // Send completion notification
-                        myBrowser.runtime.sendMessage({ action: "notify", message: `"${videoTitle.textContent}" ${t('completed')}` });
-                        
-                        setTimeout(() => { 
-                            popup.style.display = 'none'; 
-                            btn.style.display = 'flex'; 
-                            progCont.style.display = 'none'; 
-                            btnStart.style.display = 'block'; 
-                            btnCancel.textContent = t('cancel'); 
-                            btnStart.textContent = t('download');
-                            btnStart.disabled = false;
-                        }, 4000);
-                    } else if (dl.status.toLowerCase().includes('hata') || dl.status === 'failed') {
+                        progPct.innerText = '100%';
+                        progBar.style.width = '100%';
+                        progBar.style.background = '#10b981';
+                        progSpeed.innerText = t('completed');
+                        setTimeout(() => setVisible(popup, false), 2000);
+                    } else if (dl.status && (dl.status.toLowerCase().includes('hata') || dl.status === 'failed')) {
                         clearInterval(pollTimer);
-                        progText.innerText = t('error');
-                        progBar.style.background = '#f87171';
+                        progSpeed.innerText = t('error');
+                        progBar.style.background = '#ef4444';
+                        btnStart.disabled = false;
+                        setVisible(btnStart, true);
+                        setVisible(progCont, false);
                     } else {
-                        progText.innerText = dl.speed ? `${dl.speed} - ${dl.eta || '--'}` : t('downloading');
+                        const p = dl.progress || 0;
+                        progPct.innerText = p + '%';
+                        progBar.style.width = p + '%';
+                        progSpeed.innerText = dl.speed || t('processing');
                     }
-                })
-                .catch(() => {});
-            }, 1000);
-        })
-        .catch(err => {
-            alert(err.message || t('server_error'));
-            btnStart.innerText = t('download');
+                }, 600);
+            } else {
+                alert("Error: " + ((res && res.error) || "Download ID not received. Check server connection."));
+                btnStart.disabled = false;
+                btnStart.innerText = t('download');
+            }
+        } catch(e) {
+            alert("Error: " + e.message);
             btnStart.disabled = false;
-        });
+            btnStart.innerText = t('download');
+        }
     };
+    myBrowser.runtime.onMessage.addListener((msg) => {
+        if (msg.action === "trigger_download") {
+            targetDownloadUrl = msg.url || window.location.href;
+            setVisible(popup, true);
+            
+            // Always show it center-ish when triggered from context menu
+            popup.style.top = '20px';
+            popup.style.right = '20px';
+            popup.style.left = 'auto';
+            
+            loadInfo();
+            setVisible(btnStart, true);
+            btnStart.disabled = false;
+            setVisible(progCont, false);
+            if (pollTimer) clearInterval(pollTimer);
+        }
+    });
 })();

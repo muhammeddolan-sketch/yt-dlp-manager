@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT-DLM Web Helper",
-  "version": "1.4.3",
+  "version": "1.4.6",
   "description": "IDM-style download button for YT-DLM",
   "icons": {
     "48": "icon48.png"
@@ -27,6 +27,7 @@
       "matches": [
         "<all_urls>"
       ],
+      "all_frames": true,
       "js": [
         "content.js"
       ],

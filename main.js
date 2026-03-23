@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, dialog } = require('electron');
 const path = require('path');
 const { fork } = require('child_process');
 
@@ -24,6 +24,7 @@ let miniWindow;
 let tray;
 let serverProcess;
 let isQuitting = false;
+const isHiddenStartup = process.argv.includes('--hidden');
 
 function startServer() {
     serverProcess = fork(path.join(__dirname, 'server.js'), [], {
@@ -31,7 +32,60 @@ function startServer() {
     });
 }
 
+const trayTranslations = {
+    tr: { title: 'YT-DLM UniDownloader', show: 'Göster / Gizle', open: 'İndirmeleri Aç', exit: 'Kapat' },
+    en: { title: 'YT-DLM UniDownloader', show: 'Show / Hide', open: 'Open Downloads', exit: 'Exit' },
+    de: { title: 'YT-DLM UniDownloader', show: 'Anzeigen / Ausblenden', open: 'Downloads öffnen', exit: 'Beenden' },
+    fr: { title: 'YT-DLM UniDownloader', show: 'Afficher / Masquer', open: 'Ouvrir les téléchargements', exit: 'Quitter' },
+    es: { title: 'YT-DLM UniDownloader', show: 'Mostrar / Ocultar', open: 'Abrir descargas', exit: 'Salir' }
+};
+
+function updateTrayMenu(lang = 'tr') {
+    if (!tray) return;
+    const t = trayTranslations[lang] || trayTranslations['tr'];
+    
+    const contextMenu = Menu.buildFromTemplate([
+        { label: t.title, enabled: false },
+        { type: 'separator' },
+        { label: t.show, click: () => {
+            try {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    if (mainWindow.isVisible()) {
+                        mainWindow.hide();
+                    } else {
+                        mainWindow.show();
+                    }
+                } else {
+                    createMainWindow();
+                }
+            } catch(e) {}
+        }},
+        { label: t.open, click: () => {
+            try {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.show();
+                    mainWindow.focus();
+                } else {
+                    createMainWindow();
+                }
+            } catch(e) {}
+        }},
+        { type: 'separator' },
+        { label: t.exit, click: () => {
+            isQuitting = true;
+            app.quit();
+        }}
+    ]);
+
+    tray.setContextMenu(contextMenu);
+}
+
 function createMainWindow() {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        return;
+    }
+
     mainWindow = new BrowserWindow({
         width: 750,
         height: 550,
@@ -56,10 +110,6 @@ function createMainWindow() {
         return false;
     });
 
-    mainWindow.on('hide', () => {
-        // Disabled mini window popup when the main window hides
-    });
-
     mainWindow.on('show', () => {
         try { if (miniWindow && !miniWindow.isDestroyed()) miniWindow.hide(); } catch (e) {}
     });
@@ -71,44 +121,8 @@ function createMainWindow() {
 
 function createTray() {
     tray = new Tray(path.join(__dirname, 'public', 'icon.png'));
-    // Note: Usually tray needs a .png or .ico. I'll use a placeholder or system icon if I can.
-    // Since I don't have a dedicated icon file, I'll try to find a system icon or just use a label.
-    
-    const contextMenu = Menu.buildFromTemplate([
-        { label: 'YT-DLM UniDownloader', enabled: false },
-        { type: 'separator' },
-        { label: 'Göster / Gizle', click: () => {
-            try {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    if (mainWindow.isVisible()) {
-                        mainWindow.hide();
-                    } else {
-                        mainWindow.show();
-                    }
-                } else {
-                    createMainWindow();
-                }
-            } catch(e) {}
-        }},
-        { label: 'İndirmeleri Aç', click: () => {
-            try {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.show();
-                    mainWindow.focus();
-                } else {
-                    createMainWindow();
-                }
-            } catch(e) {}
-        }},
-        { type: 'separator' },
-        { label: 'Kapat', click: () => {
-            isQuitting = true;
-            app.quit();
-        }}
-    ]);
-
     tray.setToolTip('YT-DLM UniDownloader');
-    tray.setContextMenu(contextMenu);
+    updateTrayMenu('tr');
 
     tray.on('double-click', () => {
         try {
@@ -134,7 +148,7 @@ function createMiniWindow() {
         transparent: true,
         alwaysOnTop: true,
         resizable: false,
-        skipTaskbar: true, // Don't show in taskbar
+        skipTaskbar: true,
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false
@@ -142,7 +156,7 @@ function createMiniWindow() {
     });
 
     miniWindow.loadFile(path.join(__dirname, 'public', 'mini.html'));
-    miniWindow.hide(); // Start hidden
+    miniWindow.hide();
 
     miniWindow.on('closed', () => {
         miniWindow = null;
@@ -150,14 +164,19 @@ function createMiniWindow() {
 }
 
 ipcMain.on('open-main', () => {
-    try {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.show();
-            mainWindow.focus();
-        } else {
-            createMainWindow();
-        }
-    } catch(e) {}
+    createMainWindow();
+});
+
+ipcMain.on('change-lang', (event, lang) => {
+    updateTrayMenu(lang);
+});
+
+ipcMain.handle('select-folder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory']
+    });
+    if (result.canceled) return null;
+    return result.filePaths[0];
 });
 
 app.on('ready', () => {
@@ -165,7 +184,9 @@ app.on('ready', () => {
     startServer();
     createTray();
     createMiniWindow();
-    createMainWindow();
+    if (!isHiddenStartup) {
+        createMainWindow();
+    }
 });
 
 app.on('before-quit', () => {

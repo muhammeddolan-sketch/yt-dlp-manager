@@ -18,29 +18,56 @@
             </div>
             <nav>
                 <div class="nav-item active" data-view="all">
-                    <i class="fas fa-list"></i> Hepsi
+                    <i class="fas fa-list"></i> <span data-i18n="all">Hepsi</span>
                 </div>
                 <div class="nav-item" data-view="downloading">
-                    <i class="fas fa-download"></i> İndirilenler
+                    <i class="fas fa-download"></i> <span data-i18n="downloading">İndirilenler</span>
                 </div>
                 <div class="nav-item" data-view="completed">
-                    <i class="fas fa-check-circle"></i> Tamamlananlar
+                    <i class="fas fa-check-circle"></i> <span data-i18n="completed">Tamamlananlar</span>
                 </div>
                 <div class="nav-divider"></div>
                 <div class="nav-item" id="openFolderGlobal">
-                    <i class="fas fa-folder-open"></i> Klasörü Aç
+                    <i class="fas fa-folder-open"></i> <span data-i18n="open_folder">Klasörü Aç</span>
                 </div>
                 <div class="nav-item" id="clearCompletedBtn">
                     <i class="fas fa-magic"></i> <span data-i18n="clear">Temizle</span>
                 </div>
                 <div class="nav-divider"></div>
-                <!-- Language Selector -->
-                <div style="padding: 0 15px; margin-top: 10px;">
-                    <select id="langSelect" style="width: 100%; padding: 4px; background: rgba(0,0,0,0.3); color: white; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem; cursor: pointer; outline: none;">
+                <!-- Theme & Language Selector -->
+                <div style="padding: 0 15px; margin-top: 10px; display: flex; gap: 8px;">
+                    <button id="themeToggleBtn" style="background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); padding: 4px 8px; border-radius: 4px; cursor: pointer; flex: 1; transition: 0.15s;">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <select id="langSelect" style="flex: 2; font-size: 0.75rem; cursor: pointer; outline: none; border: 1px solid var(--border); border-radius: 4px; background: var(--card-bg); color: var(--text-main);">
                         <option value="tr">Türkçe 🇹🇷</option>
                         <option value="en">English 🇺🇸</option>
+                        <option value="de">Deutsch 🇩🇪</option>
+                        <option value="fr">Français 🇫🇷</option>
+                        <option value="es">Español 🇪🇸</option>
                     </select>
                 </div>
+                <div style="padding: 12px 15px; margin-top: 5px;">
+                    <label class="switch-container">
+                        <input type="checkbox" id="autostartCheck" class="switch-input">
+                        <span class="switch-slider"></span>
+                        <span class="switch-label" data-i18n="autostart">Bilgisayar açılınca başlat</span>
+                    </label>
+                </div>
+                <div class="nav-divider" style="opacity: 0.3;"></div>
+                
+                <!-- Download Folder -->
+                <div style="padding: 10px 15px;">
+                    <label style="font-size: 0.75rem; color: var(--text-dim); display: block; margin-bottom: 5px;" data-i18n="download_folder">Kayıt Türü & Yolu</label>
+                    <div style="display: flex; flex-direction: column; gap: 5px;">
+                        <input type="text" id="downloadDirInput" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); border-radius: 4px; padding: 6px; font-size: 0.7rem; outline: none;" placeholder="/home/slawn/Videolar/IDM">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                            <button id="selectDirBtn" style="background: var(--border); color: var(--text-main); border: none; padding: 6px; border-radius: 4px; font-size: 0.75rem; cursor: pointer;"><i class="fas fa-folder-open"></i> Gözat</button>
+                            <button id="saveDirBtn" style="background: var(--accent); color: var(--accent-text); border: none; padding: 6px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; display: none;">Kaydet</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="nav-divider" style="opacity: 0.3;"></div>
                 <!-- Mini info for web extension -->
                 <div style="padding: 10px; color: var(--text-dim); font-size: 0.75rem; text-align: center;">
@@ -50,9 +77,10 @@
             <div style="flex: 1;"></div>
             <div class="donate-container">
                 <button id="donateBtn" class="donate-btn">
-                    <i class="fas fa-heart"></i> Destek Ol
+                    <i class="fas fa-heart"></i> <span data-i18n="support">Destek Ol</span>
                 </button>
             </div>
+            <div style="font-size: 0.65rem; color: var(--text-dim); text-align: center; margin-bottom: 10px; opacity: 0.5;">v1.4.6</div>
         </aside>
 
         <main class="main-content">
@@ -99,10 +127,25 @@
                     <option value="audio" data-i18n="audio">Sadece Ses (MP3)</option>
                 </select>
             </div>
-            <div style="margin-top: 1rem; color: var(--text-dim); display: flex; gap: 1rem; font-size: 0.9rem;">
-                <label style="cursor: pointer;"><input type="checkbox" id="modalPlaylistCheck"> <span data-i18n="download_all_playlist">Tüm Listeyi İndir</span></label>
-                <label style="cursor: pointer;"><input type="checkbox" id="modalSubtitlesCheck"> <span data-i18n="embed_subtitles">Altyazıları Göm</span></label>
-                <label style="cursor: pointer; color: var(--accent);"><input type="checkbox" id="modalAutoOpenCheck"> <span data-i18n="auto_open">Bitince Klasörü Aç</span></label>
+            <div style="margin-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="input-group">
+                    <label style="font-size: 0.8rem; color: var(--text-dim);" data-i18n="start_time">Başlangıç Zamanı</label>
+                    <input type="text" id="modalStartTime" placeholder="00:00:00" style="width: 100%; background: var(--sidebar-bg); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; color: white; margin-top: 4px;">
+                </div>
+                <div class="input-group">
+                    <label style="font-size: 0.8rem; color: var(--text-dim);" data-i18n="end_time">Bitiş Zamanı</label>
+                    <input type="text" id="modalEndTime" placeholder="00:00:00" style="width: 100%; background: var(--sidebar-bg); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; color: white; margin-top: 4px;">
+                </div>
+            </div>
+            <div style="margin-top: 1rem; color: var(--text-dim); display: flex;">
+                <div class="modal-options">
+                    <label class="modal-check">
+                        <input type="checkbox" id="modalPlaylistCheck"> <span data-i18n="playlist">Çalma Listesi</span>
+                    </label>
+                    <label class="modal-check">
+                        <input type="checkbox" id="modalAutoOpenCheck" checked> <span data-i18n="auto_open">Klasörü Aç</span>
+                    </label>
+                </div>
             </div>
             <div class="actions">
                 <button id="confirmDownload" class="btn-primary" data-i18n="start_download">İndirmeyi Başlat</button>
@@ -113,7 +156,7 @@
     <!-- Details Modal -->
     <div id="detailsModal" class="modal">
         <div class="modal-content" style="width: 450px;">
-            <span class="close-details" style="position: absolute; right: 1rem; top: 0.75rem; font-size: 1.25rem; cursor: pointer; color: var(--text-dim); transition: 0.2s;">&times;</span>
+            <span class="close-details" style="position: absolute; right: 1rem; top: 0.75rem; font-size: 1.25rem; cursor: pointer; color: var(--text-dim); transition: 0.1s;">&times;</span>
             <div style="font-weight: 600; font-size: 1.05rem; margin-bottom: 5px;" data-i18n="details">İndirme Ayrıntıları</div>
             <div id="detailsTitle" style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" data-i18n="loading">Yükleniyor...</div>
             
