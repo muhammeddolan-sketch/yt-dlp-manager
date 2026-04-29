@@ -1,0 +1,1 @@
+{"id":"1774210371777","url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","title":"Test Download","quality":"best","isPlaylist":false,"autoOpen":false,"progress":0,"speed":"0 KiB/s","eta":"loading","status":"failed","process":null}

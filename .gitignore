@@ -1,0 +1,6 @@
+node_modules
+downloads
+dist
+out
+.env
+*.log

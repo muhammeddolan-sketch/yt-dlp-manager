@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UniGet</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="i18n.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="logo">
+                <img src="icon.png" alt="UniGet Logo" style="width: 28px; height: 28px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">
+                <span>UniGet</span>
+            </div>
+            <nav>
+                <div class="nav-item active" data-view="all">
+                    <i class="fas fa-list"></i> <span data-i18n="all">Hepsi</span>
+                </div>
+                <div class="nav-item" data-view="downloading">
+                    <i class="fas fa-download"></i> <span data-i18n="downloading">İndirilenler</span>
+                </div>
+                <div class="nav-item" data-view="completed">
+                    <i class="fas fa-check-circle"></i> <span data-i18n="completed">Tamamlananlar</span>
+                </div>
+                <div class="nav-divider"></div>
+                <div class="nav-item" id="openFolderGlobal">
+                    <i class="fas fa-folder-open"></i> <span data-i18n="open_folder">Klasörü Aç</span>
+                </div>
+                <div class="nav-item" id="clearCompletedBtn">
+                    <i class="fas fa-magic"></i> <span data-i18n="clear">Temizle</span>
+                </div>
+                <div class="nav-divider"></div>
+                <!-- Theme & Language Selector -->
+                <div style="padding: 0 15px; margin-top: 10px; display: flex; gap: 8px;">
+                    <button id="themeToggleBtn" style="background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); padding: 4px 8px; border-radius: 4px; cursor: pointer; flex: 1; transition: 0.15s;">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <select id="langSelect" style="flex: 2; font-size: 0.75rem; cursor: pointer; outline: none; border: 1px solid var(--border); border-radius: 4px; background: var(--card-bg); color: var(--text-main);">
+                        <option value="tr">Türkçe 🇹🇷</option>
+                        <option value="en">English 🇺🇸</option>
+                        <option value="de">Deutsch 🇩🇪</option>
+                        <option value="fr">Français 🇫🇷</option>
+                        <option value="es">Español 🇪🇸</option>
+                    </select>
+                </div>
+                <div style="padding: 12px 15px; margin-top: 5px;">
+                    <label class="switch-container">
+                        <input type="checkbox" id="autostartCheck" class="switch-input">
+                        <span class="switch-slider"></span>
+                        <span class="switch-label" data-i18n="autostart">Bilgisayar açılınca başlat</span>
+                    </label>
+                </div>
+                <div class="nav-divider" style="opacity: 0.3;"></div>
+                <div class="nav-item" id="openSettingsBtn">
+                    <i class="fas fa-sliders-h"></i> <span data-i18n="settings">Ayarlar</span>
+                </div>
+                <div class="nav-item" id="openSetupBtn" style="color: var(--accent);">
+                    <i class="fas fa-puzzle-piece"></i> <span data-i18n="setup_guide">Eklenti Kurulumu</span>
+                </div>
+
+                <div class="nav-divider" style="opacity: 0.3;"></div>
+                <!-- Mini info for web extension -->
+                <div style="padding: 10px; color: var(--text-dim); font-size: 0.75rem; text-align: center;">
+                    <i class="fas fa-eye"></i> <span data-i18n="clipboard_on">Pano: Açık</span><br/> <span data-i18n="clipboard_capturing">(Bağlantılar Yakalanıyor)</span>
+                </div>
+            </nav>
+            <div style="flex: 1;"></div>
+            <div class="donate-container">
+                <button id="donateBtn" class="donate-btn">
+                    <i class="fas fa-heart"></i> <span data-i18n="support">Destek Ol</span>
+                </button>
+            </div>
+            <div style="font-size: 0.65rem; color: var(--text-dim); text-align: center; margin-bottom: 10px; opacity: 0.5;">v1.5.1</div>
+        </aside>
+
+        <main class="main-content">
+            <header style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 2rem;">
+                <div class="search-bar" style="margin-bottom: 0; width: 100%;">
+                    <input type="text" id="urlInput" data-i18n="placeholder_url" placeholder="URL yapıştırın veya sürükleyin">
+                    <button id="addBtn"><i class="fas fa-plus"></i></button>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 5px;">
+                    <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-main); cursor: pointer;">
+                        <input type="checkbox" id="isPlaylistCheck"> <span data-i18n="playlist">Çalma Listesi</span>
+                    </label>
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <button id="pinWindowBtn" class="btn-icon" style="padding: 4px 8px; font-size: 0.9rem;" title="Daima Üstte Kal"><i class="fas fa-thumbtack"></i></button>
+                        <label class="switch-container" title="Sormadan varsayılan ayarlarla anında indir">
+                            <input type="checkbox" id="quickDownloadCheck" class="switch-input">
+                            <span class="switch-slider"></span>
+                            <span class="switch-label" style="white-space: nowrap;"><i class="fas fa-bolt" style="color: var(--warning);"></i> Hızlı İndir</span>
+                        </label>
+                    </div>
+                </div>
+            </header>
+
+            <section class="download-list" id="downloadList">
+                <div class="empty-state">
+                    <i class="fas fa-cloud-download-alt"></i>
+                    <p data-i18n="no_downloads">Henüz bir indirme yok.</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Info Modal -->
+    <div id="infoModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <div class="video-preview">
+                <img id="modalThumbnail" src="" alt="Thumbnail">
+                <div class="video-info">
+                    <h3 id="modalTitle" data-i18n="video_title">Video Başlığı</h3>
+                    <p id="modalUploader" data-i18n="uploader">Yükleyici</p>
+                    <p id="modalDuration" data-i18n="duration">Süre: 00:00</p>
+                </div>
+            </div>
+            <div class="quality-select">
+                <label for="qualityOption"><i class="fas fa-sliders-h"></i> <span data-i18n="quality">İndirme Kalitesi</span></label>
+                <select id="qualityOption">
+                    <option value="best" data-i18n="best">En İyi (Orijinal)</option>
+                    <option value="2160">2160p (4K)</option>
+                    <option value="1440">1440p (2K)</option>
+                    <option value="1080">1080p (FHD)</option>
+                    <option value="720">720p (HD)</option>
+                    <option value="480">480p (SD)</option>
+                    <option value="audio" data-i18n="audio">Sadece Ses (MP3)</option>
+                </select>
+            </div>
+            <div class="quality-select" style="margin-top: 0.8rem;">
+                <label for="profileOption"><i class="fas fa-bolt"></i> Download Profile</label>
+                <select id="profileOption">
+                    <option value="custom">Custom</option>
+                    <option value="fast_720">Fast 720p</option>
+                    <option value="archive_1080">Archive 1080p</option>
+                    <option value="podcast_audio">Podcast Audio</option>
+                </select>
+            </div>
+            <div style="margin-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="input-group">
+                    <label style="font-size: 0.8rem; color: var(--text-dim);" data-i18n="start_time">Başlangıç Zamanı</label>
+                    <input type="text" id="modalStartTime" placeholder="00:00:00" style="width: 100%; background: var(--sidebar-bg); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; color: var(--text-main); margin-top: 4px;">
+                </div>
+                <div class="input-group">
+                    <label style="font-size: 0.8rem; color: var(--text-dim);" data-i18n="end_time">Bitiş Zamanı</label>
+                    <input type="text" id="modalEndTime" placeholder="00:00:00" style="width: 100%; background: var(--sidebar-bg); border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px; color: var(--text-main); margin-top: 4px;">
+                </div>
+            </div>
+            <div style="margin-top: 1rem; color: var(--text-dim); display: flex;">
+                <div class="modal-options">
+                    <label class="modal-check">
+                        <input type="checkbox" id="modalPlaylistCheck"> <span data-i18n="playlist">Çalma Listesi</span>
+                    </label>
+                    <label class="modal-check">
+                        <input type="checkbox" id="modalAutoOpenCheck" checked> <span data-i18n="auto_open">Klasörü Aç</span>
+                    </label>
+                </div>
+            </div>
+            <div class="actions">
+                <button id="confirmDownload" class="btn-primary" data-i18n="start_download">İndirmeyi Başlat</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Modal -->
+    <div id="detailsModal" class="modal">
+        <div class="modal-content" style="width: 450px;">
+            <span class="close-details" style="position: absolute; right: 1rem; top: 0.75rem; font-size: 1.25rem; cursor: pointer; color: var(--text-dim); transition: 0.1s;">&times;</span>
+            <div style="font-weight: 600; font-size: 1.05rem; margin-bottom: 5px;" data-i18n="details">İndirme Ayrıntıları</div>
+            <div id="detailsTitle" style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" data-i18n="loading">Yükleniyor...</div>
+            
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 15px; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px;">
+                <div style="text-align: center;"><div style="color: var(--text-dim); font-size: 0.75rem; margin-bottom: 4px;" data-i18n="speed">Anlık Hız</div><div id="detailsSpeed" style="font-weight: 600; color: var(--accent); font-size: 0.95rem;">--</div></div>
+                <div style="text-align: center;"><div style="color: var(--text-dim); font-size: 0.75rem; margin-bottom: 4px;" data-i18n="eta">Kalan Süre</div><div id="detailsEta" style="font-weight: 600; font-size: 0.95rem;">--:--</div></div>
+                <div style="text-align: center;"><div style="color: var(--text-dim); font-size: 0.75rem; margin-bottom: 4px;" data-i18n="progress">İlerleme</div><div id="detailsProg" style="font-weight: 600; font-size: 0.95rem;">%0</div></div>
+            </div>
+            
+            <div style="background: var(--sidebar-bg); border: 1px solid var(--border); border-radius: 8px; height: 160px; padding: 5px; position: relative;">
+                <canvas id="speedChart" style="width: 100%; height: 100%;"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div id="settingsModal" class="modal">
+        <div class="modal-content" style="width: 520px;">
+            <span class="close-settings">&times;</span>
+            <div style="font-weight: 600; font-size: 1.05rem; margin-bottom: 14px;">Ayarlar</div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <label style="font-size: 0.8rem; color: var(--text-dim);" data-i18n="download_folder">Kayıt Türü & Yolu</label>
+                <input type="text" id="downloadDirInput" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); border-radius: 6px; padding: 8px; font-size: 0.85rem; outline: none;" placeholder="/home/slawn/Videolar/IDM">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <button id="selectDirBtn" style="background: var(--border); color: var(--text-main); border: none; padding: 8px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;"><i class="fas fa-folder-open"></i> Gozat</button>
+                    <button id="saveDirBtn" style="background: var(--accent); color: var(--accent-text); border: none; padding: 8px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; display: none;">Kaydet</button>
+                </div>
+                <label style="font-size: 0.8rem; color: var(--text-dim); margin-top: 8px;">Power Mode</label>
+                <select id="powerModeSelect" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); border-radius: 6px; padding: 8px; font-size: 0.85rem;">
+                    <option value="auto">Auto</option>
+                    <option value="eco">Eco</option>
+                    <option value="normal">Normal</option>
+                    <option value="performance">Performance</option>
+                </select>
+                <label style="font-size: 0.8rem; color: var(--text-dim);">Bandwidth Limit (KB/s)</label>
+                <input type="number" id="rateLimitInput" min="0" step="128" placeholder="0 = unlimited" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); border-radius: 6px; padding: 8px; font-size: 0.85rem; outline: none;">
+                <label class="switch-container">
+                    <input type="checkbox" id="smartRetryCheck" class="switch-input">
+                    <span class="switch-slider"></span>
+                    <span class="switch-label">Smart Retry</span>
+                </label>
+                <label class="switch-container">
+                    <input type="checkbox" id="lowNoiseNotificationCheck" class="switch-input" checked>
+                    <span class="switch-slider"></span>
+                    <span class="switch-label">Low Noise Notifications</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Setup Guide Modal -->
+    <div id="setupModal" class="modal">
+        <div class="modal-content" style="width: 550px; text-align: center; padding: 30px;">
+            <span class="close-setup" style="position: absolute; right: 1.5rem; top: 1rem; font-size: 1.5rem; cursor: pointer;">&times;</span>
+            <div style="font-size: 3rem; color: var(--accent); margin-bottom: 20px;">
+                <i class="fas fa-puzzle-piece"></i>
+            </div>
+            <h2 style="margin-bottom: 15px;">Tek Tıkla Eklenti Kurulumu</h2>
+            <p style="color: var(--text-dim); line-height: 1.6; margin-bottom: 25px;">
+                Eskiden eklentiyi manuel kurmak gerekiyordu. Artık Tampermonkey ile tek tıkla kurabilirsiniz! Tarayıcınızda YouTube gezerken indirme butonu çıkmasını istiyorsanız aşağıdaki adımları izleyin.
+            </p>
+            
+            <div style="background: var(--sidebar-bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border); text-align: left; margin-bottom: 25px;">
+                <ol style="color: var(--text-main); font-size: 0.9rem; padding-left: 20px; display: flex; flex-direction: column; gap: 12px;">
+                    <li>Eğer kurulu değilse Chrome/Edge için <b><a href="https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" style="color:var(--success);">Tampermonkey</a></b> eklentisini kurun.</li>
+                    <li>Tampermonkey kurulduktan sonra aşağıdaki butona tıklayın.</li>
+                    <li>Açılan pencerede <b>Yükle (Install)</b> butonuna basarak kurulumu tamamlayın.</li>
+                </ol>
+            </div>
+
+            <button id="installUserScriptBtn" class="btn-primary" style="width: 100%; margin-bottom: 10px;"><i class="fas fa-magic"></i> Script'i Otomatik Yükle</button>
+            <button id="closeSetupBtn" class="donate-btn" style="width: 100%;">Daha Sonra</button>
+        </div>
+    </div>
+
+    <!-- Onboarding Modal -->
+    <div id="onboardingModal" class="modal">
+        <div class="modal-content" style="width: 600px; text-align: center; padding: 40px;">
+            <h1 style="font-size: 2rem; margin-bottom: 10px; color: var(--text-main);">UniGet'e Hoş Geldin! 🎉</h1>
+            <p style="color: var(--text-dim); margin-bottom: 30px;">Hızlı, modern ve evrensel indirme yöneticin kullanıma hazır. Başlamadan önce bilmen gereken 3 basit şey var:</p>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 30px; text-align: left;">
+                <div style="background: var(--sidebar-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border);">
+                    <i class="fas fa-mouse-pointer" style="font-size: 1.5rem; color: var(--accent); margin-bottom: 10px;"></i>
+                    <h4 style="margin-bottom: 5px;">Sürükle & Bırak</h4>
+                    <p style="font-size: 0.8rem; color: var(--text-dim);">Herhangi bir YouTube linkini veya videoyu bu pencerenin içine sürükleyerek anında indirmeye başlayabilirsin.</p>
+                </div>
+                <div style="background: var(--sidebar-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border);">
+                    <i class="fas fa-bolt" style="font-size: 1.5rem; color: var(--warning); margin-bottom: 10px;"></i>
+                    <h4 style="margin-bottom: 5px;">Hızlı İndir</h4>
+                    <p style="font-size: 0.8rem; color: var(--text-dim);">Üstteki Hızlı İndir (⚡) modunu açarak sana hiçbir şey sormadan doğrudan varsayılan kalitede indirmesini sağlayabilirsin.</p>
+                </div>
+                <div style="background: var(--sidebar-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border);">
+                    <i class="fas fa-thumbtack" style="font-size: 1.5rem; color: var(--success); margin-bottom: 10px;"></i>
+                    <h4 style="margin-bottom: 5px;">Üstte Kal</h4>
+                    <p style="font-size: 0.8rem; color: var(--text-dim);">İğne (📌) butonuna basarak pencereyi her zaman diğer pencerelerin üstünde tutabilirsin. Sürükle bırak için harikadır!</p>
+                </div>
+            </div>
+            
+            <button id="finishOnboardingBtn" class="btn-primary" style="font-size: 1.1rem; padding: 12px;">Hadi Başlayalım!</button>
+        </div>
+    </div>
+
+    <div id="dragOverlay" class="drag-overlay">
+        <i class="fas fa-download" style="font-size: 4rem; margin-bottom: 20px;"></i>
+        <h2>Linki Buraya Bırak</h2>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
