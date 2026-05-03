@@ -29,7 +29,7 @@
     z-index: 9999999;
     background-color: var(--uniget-bg);
     color: var(--uniget-text) !important;
-    padding: 6px 14px;
+    padding: 5px 8px;
     border-radius: 6px;
     font-family: 'Outfit', 'Inter', -apple-system, sans-serif !important;
     font-size: 13px !important;
@@ -38,8 +38,9 @@
     display: none;
     border: 1px solid var(--uniget-brd) !important;
     transition: background-color 0.15s, opacity 0.2s, transform 0.1s !important;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     align-items: center;
+    gap: 4px;
     line-height: 1.2 !important;
     text-decoration: none !important;
     pointer-events: auto;
@@ -63,12 +64,12 @@
 }
 
 .uniget-status-dot {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
-    margin-left: 8px;
     background: #ef4444;
-    box-shadow: 0 0 0 1px rgba(0,0,0,0.15);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+    flex-shrink: 0;
 }
 
 .uniget-status-dot.online {

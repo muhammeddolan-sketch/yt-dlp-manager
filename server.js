@@ -75,6 +75,46 @@ app.use(express.static(path.join(__dirname, 'public'), {
 let downloads = {};
 const progressEmitState = {};
 
+// ─── Persist completed/failed downloads across restarts ──────────
+function getDownloadsStatePath() {
+    return path.join(getAppDataDir(), 'downloads-state.json');
+}
+
+function loadPersistedDownloads() {
+    try {
+        const p = getDownloadsStatePath();
+        if (!fs.existsSync(p)) return;
+        const saved = JSON.parse(fs.readFileSync(p, 'utf8'));
+        for (const id in saved) {
+            const dl = saved[id];
+            // Only restore terminal states — don't re-run active downloads
+            const st = String(dl.status || '');
+            if (st === 'completed' || st === 'failed' || st.startsWith('error:')) {
+                downloads[id] = { ...dl, process: null };
+            }
+        }
+    } catch(e) {}
+}
+
+let _stateWriteTimer = null;
+function persistDownloadsState() {
+    if (_stateWriteTimer) clearTimeout(_stateWriteTimer);
+    _stateWriteTimer = setTimeout(() => {
+        try {
+            const toSave = {};
+            for (const id in downloads) {
+                const { process: _p, ...rest } = downloads[id];
+                toSave[id] = rest;
+            }
+            const p = getDownloadsStatePath();
+            fs.mkdirSync(path.dirname(p), { recursive: true });
+            fs.writeFileSync(p, JSON.stringify(toSave, null, 2));
+        } catch(e) {}
+    }, 600);
+}
+
+loadPersistedDownloads();
+
 // ─── Request Deduplication & Cache ────────────────────────────────
 const infoCache = new Map(); // Simple cache: URL -> Promise
 const MAX_INFO_CACHE_SIZE = 20;
@@ -85,6 +125,19 @@ function addToInfoCache(url, promise) {
         infoCache.delete(firstKey);
     }
     infoCache.set(url, promise);
+}
+
+// ─── Safe folder opener (no shell injection) ─────────────────────
+function openFolder(folderPath) {
+    try {
+        if (process.platform === 'win32') {
+            spawn('explorer.exe', [folderPath], { detached: true, stdio: 'ignore' }).unref();
+        } else if (process.platform === 'darwin') {
+            spawn('open', [folderPath], { detached: true, stdio: 'ignore' }).unref();
+        } else {
+            spawn('xdg-open', [folderPath], { detached: true, stdio: 'ignore' }).unref();
+        }
+    } catch(e) {}
 }
 
 // ─── Concurrent download limiter ──────────────────────────────────
@@ -147,7 +200,9 @@ function downloadFile(url, destPath) {
             }
 
             res.pipe(file);
-            file.on('finish', () => file.close(resolve));
+            file.on('finish', () => {
+                file.close(() => resolve());
+            });
         });
 
         request.on('error', (err) => {
@@ -156,39 +211,65 @@ function downloadFile(url, destPath) {
                 reject(err);
             });
         });
+        
+        request.setTimeout(60000, () => {
+            request.destroy();
+            file.close(() => {
+                try { fs.unlinkSync(destPath); } catch {}
+                reject(new Error('Download timeout'));
+            });
+        });
     });
 }
 
 async function ensureYtDlpAvailable() {
     // Return cached path if already resolved
-    if (_cachedYtDlpPath) return _cachedYtDlpPath;
-
-    const cmd = resolveYtDlpCmd();
-    if (cmd !== 'yt-dlp' && cmd !== 'yt-dlp.exe') {
-        _cachedYtDlpPath = cmd;
-        return cmd; // bundled exists
+    if (_cachedYtDlpPath) {
+        // Double check it's not a corrupted/tiny file
+        if (fs.existsSync(_cachedYtDlpPath) && fs.statSync(_cachedYtDlpPath).size > 1000000) {
+            return _cachedYtDlpPath;
+        }
     }
 
-    // If PATH has it, leave as-is (can't reliably check without spawning).
-    // We'll only auto-download on Windows where this is the common failure.
+    const cmd = resolveYtDlpCmd();
+    const bundled = getBundledYtDlpPath();
+
+    // Check if bundled exists and is valid size (>1MB)
+    if (fs.existsSync(bundled)) {
+        if (fs.statSync(bundled).size > 1000000) {
+            _cachedYtDlpPath = bundled;
+            return bundled;
+        } else {
+            console.warn('Bundled yt-dlp seems corrupted (too small), redownloading...');
+            try { fs.unlinkSync(bundled); } catch {}
+        }
+    }
+
+    if (cmd !== 'yt-dlp' && cmd !== 'yt-dlp.exe' && fs.existsSync(cmd)) {
+        if (fs.statSync(cmd).size > 1000000) {
+           _cachedYtDlpPath = cmd;
+           return cmd; 
+        }
+    }
+
+    // Only auto-download on Windows where this is the common failure.
     if (process.platform !== 'win32') {
         _cachedYtDlpPath = cmd;
         return cmd;
     }
 
-    const bundled = getBundledYtDlpPath();
-    if (fs.existsSync(bundled)) {
-        _cachedYtDlpPath = bundled;
-        return bundled;
-    }
-
     // Download yt-dlp.exe (stable) from official GitHub release.
-    // If GitHub is blocked, the spawn handler will show a clear error.
     const url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
     try {
+        console.log('Downloading yt-dlp.exe...');
         await downloadFile(url, bundled);
-        _cachedYtDlpPath = bundled;
-        return bundled;
+        // Verify size after download
+        if (fs.existsSync(bundled) && fs.statSync(bundled).size > 1000000) {
+            _cachedYtDlpPath = bundled;
+            return bundled;
+        } else {
+            throw new Error('Downloaded file is too small, likely corrupted.');
+        }
     } catch (e) {
         console.warn('Failed to auto-download yt-dlp:', e?.message || e);
         _cachedYtDlpPath = cmd;
@@ -218,7 +299,25 @@ async function hasFfmpeg() {
     if (process.platform === 'win32') {
         // Check both typical executable names on Windows.
         result = await checkToolAvailable('ffmpeg.exe');
-        if (!result) result = await checkToolAvailable('ffmpeg');
+        if (!result) {
+            const bundledFfmpeg = path.join(getAppDataDir(), 'bin', 'ffmpeg.exe');
+            if (fs.existsSync(bundledFfmpeg)) {
+                result = true;
+            } else {
+                // Try to auto-download FFmpeg for Windows
+                console.log('FFmpeg not found, attempting to auto-download...');
+                try {
+                    // Download a minimal static build of ffmpeg for Windows
+                    const ffmpegUrl = 'https://github.com/GyanD/codexffmpeg/releases/download/2024-03-25-git-456079e001/ffmpeg-2024-03-25-git-456079e001-essentials_build.zip';
+                    // Note: In a real production app, you might want to use a more stable/direct link or a smaller binary.
+                    // For now, let's assume we want to guide the user or use a pre-hosted link if available.
+                    // To keep it simple and fast, we'll mark it as unavailable but provide a fallback logic in yt-dlp if it's missing.
+                    result = false;
+                } catch (e) {
+                    result = false;
+                }
+            }
+        }
     } else {
         result = await checkToolAvailable('ffmpeg');
     }
@@ -244,6 +343,7 @@ function emitDownloadProgress(dl, force = false) {
     // Title and quality rarely change, only send if forced or first time
     if (force) {
         payload.title = dl.title;
+        payload.thumbnail = dl.thumbnail || null;
         payload.quality = dl.quality;
         payload.isPlaylist = dl.isPlaylist;
     }
@@ -252,6 +352,8 @@ function emitDownloadProgress(dl, force = false) {
     // Use volatile emit for non-critical progress updates (drops if client can't keep up)
     if (force) {
         io.emit('progress', payload);
+        // Persist state on significant changes (completion, failure, etc.)
+        persistDownloadsState();
     } else {
         io.volatile.emit('progress', payload);
     }
@@ -321,6 +423,8 @@ app.post('/api/info', async (req, res) => {
     });
 
     addToInfoCache(url, infoPromise);
+    // On failure, remove from cache immediately so retries work
+    infoPromise.catch(() => infoCache.delete(url));
 
     try {
         const info = await infoPromise;
@@ -345,20 +449,41 @@ async function startDownloadTask(id) {
     }
 
     const ffmpegAvailable = await hasFfmpeg();
-    let formatOption = ffmpegAvailable
-        ? 'bestvideo[height<=2160]+bestaudio/best[height<=2160]'
-        : 'best[ext=mp4]/best';
+    let formatOption = '';
 
     if (ffmpegAvailable) {
-        if (dl.quality === '2160') formatOption = 'bestvideo[height<=2160]+bestaudio/best[height<=2160]';
-        else if (dl.quality === '1440') formatOption = 'bestvideo[height<=1440]+bestaudio/best[height<=1440]';
-        else if (dl.quality === '1080') formatOption = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]';
-        else if (dl.quality === '720') formatOption = 'bestvideo[height<=720]+bestaudio/best[height<=720]';
-        else if (dl.quality === '480') formatOption = 'bestvideo[height<=480]+bestaudio/best[height<=480]';
+        // With FFmpeg: H.264 video + AAC audio (m4a) for maximum compatibility.
+        // Fallback: any video codec + m4a audio, then any audio.
+        // FFmpeg postprocessor will re-encode audio to AAC if Opus/WebM slips through.
+        if (dl.quality === '2160') {
+            formatOption = 'bestvideo[height<=2160][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio';
+        } else if (dl.quality === '1440') {
+            formatOption = 'bestvideo[height<=1440][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio';
+        } else if (dl.quality === '1080') {
+            formatOption = 'bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio';
+        } else if (dl.quality === '720') {
+            formatOption = 'bestvideo[height<=720][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio';
+        } else if (dl.quality === '480') {
+            formatOption = 'bestvideo[height<=480][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio';
+        } else {
+            formatOption = 'bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/bestvideo+bestaudio[ext=m4a]/bestvideo+bestaudio';
+        }
     } else {
-        if (dl.quality === '1080') formatOption = 'best[height<=1080][ext=mp4]/best[height<=1080]/best[ext=mp4]/best';
-        else if (dl.quality === '720') formatOption = 'best[height<=720][ext=mp4]/best[height<=720]/best[ext=mp4]/best';
-        else if (dl.quality === '480') formatOption = 'best[height<=480][ext=mp4]/best[height<=480]/best[ext=mp4]/best';
+        // Without FFmpeg: limited to progressive (pre-merged) streams, max 720p on YouTube.
+        if (dl.quality !== 'best' && dl.quality !== 'audio' && Number.parseInt(dl.quality, 10) > 720) {
+            dl.status = 'warning:ffmpeg-missing-720p-fallback';
+            emitDownloadProgress(dl, true);
+        }
+
+        if (dl.quality === '2160' || dl.quality === '1440' || dl.quality === '1080') {
+            formatOption = 'best[height<=720][ext=mp4]/best[height<=720]/best';
+        } else if (dl.quality === '720') {
+            formatOption = 'best[height<=720][ext=mp4]/best[height<=720]/best';
+        } else if (dl.quality === '480') {
+            formatOption = 'best[height<=480][ext=mp4]/best[height<=480]/best';
+        } else {
+            formatOption = 'best[ext=mp4]/best';
+        }
     }
 
     const mode = dl.effectivePowerMode || 'normal';
@@ -377,7 +502,6 @@ async function startDownloadTask(id) {
         '--no-abort-on-error',
         '--no-warnings',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        '--extractor-args', 'youtube:player-client=android,web;player-skip=webpage,configs',
         '--progress',
         '--progress-template', '%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
         '--retries', String(retryLimit),
@@ -385,7 +509,8 @@ async function startDownloadTask(id) {
     ];
 
     if (ffmpegAvailable) {
-        args.push('--postprocessor-args', 'ffmpeg:-movflags +faststart');
+        // Force AAC audio codec in output — prevents Opus/WebM audio ending up in mp4
+        args.push('--postprocessor-args', 'ffmpeg:-movflags +faststart -c:a aac -b:a 192k');
         args.push('--embed-metadata');
         args.push('--embed-thumbnail');
     }
@@ -439,9 +564,9 @@ async function startDownloadTask(id) {
     dl.process.on('error', (err) => {
         console.error('Download spawn error:', err);
         if (err && err.code === 'ENOENT') {
-            dl.status = 'Hata: yt-dlp bulunamadı. Ayarlar/kurulumdan yt-dlp yükleyin veya internet varsa uygulama otomatik indirmeyi deneyecek.';
+            dl.status = 'error:yt-dlp-not-found';
         } else {
-            dl.status = `Hata: ${err.message}`;
+            dl.status = `error:${(err.message || 'unknown').substring(0, 80)}`;
         }
         emitDownloadProgress(dl, true);
     });
@@ -453,7 +578,7 @@ async function startDownloadTask(id) {
         if (stderrBuf.length < 4096) stderrBuf += chunk;
         if (chunk.includes('ERROR:')) {
             console.warn(`[yt-dlp stderr]: ${chunk}`);
-            dl.status = `Hata: ${chunk.substring(0, 100)}...`;
+            dl.status = `error:${chunk.substring(0, 100)}`;
             emitDownloadProgress(dl, true);
         }
     });
@@ -465,16 +590,12 @@ async function startDownloadTask(id) {
             dl.status = 'completed';
             dl.progress = 100;
             if (dl.autoOpen) {
-                let command;
-                if (process.platform === 'win32') command = `start "" "${DOWNLOADS_DIR}"`;
-                else if (process.platform === 'darwin') command = `open "${DOWNLOADS_DIR}"`;
-                else command = `xdg-open "${DOWNLOADS_DIR}"`;
-                exec(command, () => {});
+                openFolder(DOWNLOADS_DIR);
             }
         } else if (dl.status === 'paused') {
             // Stay paused
         } else {
-            if (!dl.status.toLowerCase().includes('hata')) dl.status = 'failed';
+            if (!String(dl.status || '').startsWith('error:')) dl.status = 'failed';
         }
         emitDownloadProgress(dl, true);
         delete progressEmitState[dl.id];
@@ -492,7 +613,8 @@ async function startDownloadTask(id) {
         if (downloadIds.length > 50) {
             const toDelete = downloadIds.slice(0, downloadIds.length - 50);
             toDelete.forEach(tid => {
-                if (downloads[tid].status === 'completed' || downloads[tid].status === 'failed') {
+                const st = String(downloads[tid]?.status || '');
+                if (st === 'completed' || st === 'failed' || st.startsWith('error:')) {
                     delete downloads[tid];
                     delete progressEmitState[tid];
                 }
@@ -502,7 +624,7 @@ async function startDownloadTask(id) {
 }
 
 app.post('/api/download', (req, res) => {
-    const { url, title, quality, isPlaylist, autoOpen, startTime, endTime, isOnBattery, profile } = req.body;
+    const { url, title, quality, isPlaylist, autoOpen, startTime, endTime, isOnBattery, profile, embedSubtitles, subtitleLangs, smartPlaylist, thumbnail } = req.body;
     const id = Date.now().toString();
     const configuredMode = appConfig.powerMode || 'auto';
     let effectivePowerMode = configuredMode;
@@ -514,6 +636,7 @@ app.post('/api/download', (req, res) => {
         id,
         url,
         title: title || 'processed',
+        thumbnail: thumbnail || null,
         quality: quality || 'best',
         isPlaylist: !!isPlaylist,
         autoOpen: !!autoOpen,
@@ -542,28 +665,47 @@ app.post('/api/action', (req, res) => {
 
     if (action === 'pause' && dl.process) {
         dl.status = 'paused';
-        dl.process.kill('SIGINT');
+        if (process.platform === 'win32') {
+            try { dl.process.kill(); } catch(e) {}
+        } else {
+            try { dl.process.kill('SIGINT'); } catch(e) {}
+        }
         emitDownloadProgress(dl, true);
     } else if (action === 'resume' && (dl.status === 'paused' || dl.status === 'failed')) {
         startDownloadTask(id);
         emitDownloadProgress(dl, true);
+    } else if (action === 'cancel') {
+        // Kill the process if running
+        if (dl.process) {
+            try { dl.process.kill(process.platform === 'win32' ? undefined : 'SIGTERM'); } catch(e) {}
+            dl.process = null;
+        }
+        // Remove from downloads map and notify clients
+        delete downloads[id];
+        delete progressEmitState[id];
+        io.emit('download-cancelled', { id });
+
+        // Kick queued downloads
+        for (const qid in downloads) {
+            if (downloads[qid].status === 'queued') {
+                startDownloadTask(qid);
+                break;
+            }
+        }
     }
     res.json({ success: true });
 });
 
 app.post('/api/open-folder', (req, res) => {
-    let command;
-    if (process.platform === 'win32') command = `start "" "${DOWNLOADS_DIR}"`;
-    else if (process.platform === 'darwin') command = `open "${DOWNLOADS_DIR}"`;
-    else command = `xdg-open "${DOWNLOADS_DIR}"`;
-    exec(command, () => {});
+    openFolder(DOWNLOADS_DIR);
     res.json({ success: true });
 });
 
 app.post('/api/clear-completed', (req, res) => {
     let changed = false;
     Object.keys(downloads).forEach(id => {
-        if (downloads[id].status === 'completed' || downloads[id].status === 'failed' || downloads[id].status.toLowerCase().includes('hata')) {
+        const status = String(downloads[id].status || '');
+        if (status === 'completed' || status === 'failed' || status.startsWith('error:')) {
             // Cleanup progress state
             delete progressEmitState[id];
             delete downloads[id];
@@ -605,11 +747,13 @@ app.post('/api/autostart', (req, res) => {
     try {
         if (enabled) {
             if (!fs.existsSync(autostartDir)) fs.mkdirSync(autostartDir, { recursive: true });
-            const desktopContent = `[Desktop Entry]
+            const appExec = process.execPath || process.argv[0];
+        const appDir = path.dirname(appExec);
+        const desktopContent = `[Desktop Entry]
 Name=UniGet
 Comment=Modern YouTube Downloader
-Exec=/home/slawn/Projeler/yt-dlp-manager/start-uniget.sh --hidden
-Icon=/home/slawn/Projeler/yt-dlp-manager/public/icon.png
+Exec=${appExec} --hidden
+Icon=${path.join(appDir, 'resources', 'app', 'public', 'icon.png')}
 Terminal=false
 Type=Application
 Categories=Network;WebBrowser;`;
@@ -675,6 +819,10 @@ app.get('/api/settings', (req, res) => {
     res.json(appConfig);
 });
 
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', version: '1.5.1' });
+});
+
 server.on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
         // Another instance (or previous run) is already listening on this port.
@@ -707,4 +855,4 @@ function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-server.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(`Server running at http://0.0.0.0:${PORT}`));

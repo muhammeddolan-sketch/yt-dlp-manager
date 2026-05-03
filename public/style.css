@@ -496,3 +496,19 @@ select {
     color: var(--success);
     background-color: rgba(16, 185, 129, 0.15);
 }
+
+/* Download card thumbnail */
+.card-thumb {
+    width: 80px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 6px;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    background: var(--sidebar-bg);
+}
+
+/* URL input validation colors */
+#urlInput {
+    transition: border-color 0.15s ease;
+}

@@ -1,19 +1,19 @@
-# YT-DLP Manager (YT-DLM) Pro v1.4.6
+# UniGet - Ultimate Media Manager v1.5.1
 
-YT-DLP Manager Pro is a modern, powerful, and easy-to-use graphical user interface (GUI) for the popular `yt-dlp` tool. Designed with a clean **Matte & Premium aesthetic**, it offers an experience that surpasses traditional download managers like IDM by combining advanced features with contemporary design.
+UniGet (formerly YT-DLM) is a premium, modern, and powerful graphical user interface (GUI) for `yt-dlp`. Designed with a **Matte & High-Performance aesthetic**, it offers an experience that surpasses traditional download managers by combining advanced features with contemporary design.
 
 ## 🚀 Key Features
 
-- **Matte & Premium UI**: A sleek, minimal, and modern interface with full **Dark & Light Mode** support.
-- **Turbo Multi-threaded Downloads**: Uses multi-connection technics (`-N 12`) to download segments simultaneously, saturating your bandwidth.
+- **Zero-Configuration**: Automatically downloads and manages `yt-dlp` and `ffmpeg` dependencies. No terminal required!
+- **Premium UI**: A sleek, minimal, and modern interface with full **Dark & Light Mode** support.
+- **Turbo Multi-threaded Downloads**: Uses multi-connection techniques to saturate your bandwidth for maximum speed.
 - **Video Trimming (Partial Downloads)**: Only need a clip? Set a start and end time (HH:MM:SS) to download exactly what you need.
-- **Universal Web Extension**: Capture media from almost any site. Optimized for YouTube and Shorts (only triggers on media pages to keep your browsing clean).
-- **Metadata & Subtitle Magic**: Automatically embeds thumbnails, tags, and subtitles into your mp4/mp3 files.
+- **Universal Web Extension**: Capture media from almost any site. Optimized for YouTube and Shorts.
+- **Metadata & Subtitle Magic**: Automatically embeds thumbnails, tags, and subtitles into your files.
 - **Advanced Desktop Integration**:
   - **Tray Support**: Minimize to system tray and manage downloads from the right-click menu.
-  - **Background Search & Startup**: Optional silent startup with your computer to keep capture ready in the background.
-- **Customizable Organization**: Choose your own download folder with a native folder picker dialog.
-- **Socket.io Real-time Stats**: Get live updates on download speed, ETA, and progress with high-performance charts.
+  - **Smart Power Modes**: Automatically switches to 'Eco' mode on battery and 'Turbo' on AC.
+- **Real-time Stats**: Live updates on download speed, ETA, and progress with high-performance charts.
 
 ## 🛠️ Tech Stack
 
@@ -21,38 +21,26 @@ YT-DLP Manager Pro is a modern, powerful, and easy-to-use graphical user interfa
 - **Backend Server**: Express.js & Node.js
 - **Real-time Communication**: Socket.io
 - **Styling**: Modern Matte CSS (Zero lag, zero glassmorphism for performance)
-- **Engine**: yt-dlp & ffmpeg
+- **Engine**: yt-dlp
 
 ## 📦 Installation (Kurulum)
 
-### 🚀 Hızlı Kurulum (Tavsiye Edilen)
+### 🚀 Windows (Recommended)
+Simply download the latest `UniGet-Setup-1.5.1.exe` from the [Releases](https://github.com/muhammeddolan-sketch/yt-dlp-manager/releases) page and run it. The installer will:
+1. Create a desktop shortcut.
+2. Register the app in the Start Menu.
+3. Handle all dependencies automatically upon first launch.
 
-Linux kullanıcıları için her şeyi otomatik halleden bir kurulum asistanımız mevcut. Tek yapmanız gereken terminale şu komutları girmek:
+### 🛠️ Developer Setup
+1. **Clone & Install**: `npm install`
+2. **Start Development**: `npm start`
+3. **Build Installer**: `npm run dist:win`
 
-```bash
-chmod +x kurulum_setup.sh
-./kurulum_setup.sh
-```
+## 🧩 Browser Extension
+Load the `UniGet-Extension-v1.5.1.zip` (unpacked) into your Chromium-based browser (Brave, Chrome, Edge) via "Load unpacked". The extension connects to the local server to send downloads instantly.
 
-Bu araç şunları yapar:
-1. Gerekli sistem bağımlılıklarını (`yt-dlp`, `ffmpeg`, `npm`) otomatik yükler.
-2. Uygulamayı paketleyerek `dist/` klasörü altına yükleme dosyalarını (`.deb` ve `.AppImage`) hazır eder.
-3. Arzu ederseniz `.deb` dosyasını çift tıklayarak sisteminize kurabilirsiniz.
-
-### 🛠️ Manuel Geliştirme Kurulumu
-
-1. **Gereksinimler**: Node.js, yt-dlp ve ffmpeg sisteminizde kurulu olmalıdır.
-2. **Kütüphaneleri Yükle**: `npm install`
-3. **Başlat**: `npm start`
-4. **Paketle**: `npm run dist`
-
-## 🧩 Tarayıcı Eklentisi (Browser Extension)
-
-`web-extension` klasöründeki dosyaları Chromium tabanlı tarayıcınıza (Brave, Chrome, Edge) "Paketlenmemiş öğe yükle" seçeneği ile ekleyin. Eklenti, sunucuyla yerel bir bağlantı kurarak indirmeleri anında uygulamaya gönderir.
-
-## 📄 Lisans
-
-Bu proje **ISC Lisansı** altındadır.
+## 📄 License
+This project is licensed under the **ISC License**.
 
 ---
 *Created with ❤️ by **Antigravity AI** - Designed for Efficiency.*

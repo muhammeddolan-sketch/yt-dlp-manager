@@ -34,11 +34,20 @@ let serverProcess;
 let isQuitting = false;
 const isHiddenStartup = process.argv.includes('--hidden');
 
-function isServerAlive(url, timeoutMs = 400) {
+function isServerAlive(url, timeoutMs = 600) {
     return new Promise((resolve) => {
-        const req = http.get(url, (res) => {
-            res.resume();
-            resolve(true);
+        const checkUrl = url.endsWith('/') ? url + 'api/health' : url + '/api/health';
+        const req = http.get(checkUrl, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    const json = JSON.parse(data);
+                    resolve(json.status === 'ok');
+                } catch (e) {
+                    resolve(false);
+                }
+            });
         });
         req.on('error', () => resolve(false));
         req.setTimeout(timeoutMs, () => {
@@ -251,6 +260,18 @@ function createMiniWindow() {
 
 ipcMain.on('open-main', () => {
     createMainWindow();
+});
+
+ipcMain.on('focus-window', () => {
+    try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+        } else {
+            createMainWindow();
+        }
+    } catch(e) {}
 });
 
 ipcMain.on('toggle-always-on-top', (event, isAlwaysOnTop) => {

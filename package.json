@@ -1,7 +1,7 @@
 {
   "name": "yt-dlp-manager",
   "version": "1.5.1",
-  "description": "",
+  "description": "Premium YT-DLP GUI Manager",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -13,26 +13,33 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "build": {
-    "appId": "com.antigravity.uniget",
+    "appId": "com.uniget.app",
     "productName": "UniGet",
+    "copyright": "Copyright © 2024 UniGet Team",
     "artifactName": "${productName}-Setup-${version}.${ext}",
     "directories": {
       "output": "dist"
     },
+    "publish": {
+      "provider": "github",
+      "owner": "muhammeddolan-sketch",
+      "repo": "yt-dlp-manager"
+    },
     "files": [
       "**/*",
-      "!dist"
+      "!dist",
+      "!out",
+      "!.git",
+      "!web-extension"
     ],
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "Network"
-    },
     "win": {
       "target": [
-        "nsis",
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
         "portable"
       ],
       "icon": "public/icon.png"
@@ -43,11 +50,12 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "UniGet",
-      "uninstallDisplayName": "UniGet"
+      "uninstallDisplayName": "UniGet",
+      "runAfterFinish": true
     }
   },
   "keywords": [],
-  "author": "",
+  "author": "muhammeddolan-sketch",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
