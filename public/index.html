@@ -27,9 +27,6 @@
                     <i class="fas fa-check-circle"></i> <span data-i18n="completed">Tamamlananlar</span>
                 </div>
                 <div class="nav-divider"></div>
-                <div class="nav-item" id="openFolderGlobal">
-                    <i class="fas fa-folder-open"></i> <span data-i18n="open_folder">Klasörü Aç</span>
-                </div>
                 <div class="nav-item" id="clearCompletedBtn">
                     <i class="fas fa-magic"></i> <span data-i18n="clear">Temizle</span>
                 </div>
@@ -84,9 +81,14 @@
                     <button id="addBtn"><i class="fas fa-plus"></i></button>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 5px;">
-                    <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-main); cursor: pointer;">
-                        <input type="checkbox" id="isPlaylistCheck"> <span data-i18n="playlist">Çalma Listesi</span>
-                    </label>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-main); cursor: pointer;">
+                            <input type="checkbox" id="isPlaylistCheck"> <span data-i18n="playlist">Çalma Listesi</span>
+                        </label>
+                        <button id="openFolderGlobal" class="btn-icon" style="padding: 4px 8px; font-size: 0.85rem; color: var(--text-dim);" title="Klasörü Aç">
+                            <i class="fas fa-folder-open"></i>
+                        </button>
+                    </div>
                     <div style="display: flex; gap: 15px; align-items: center;">
                         <button id="pinWindowBtn" class="btn-icon" style="padding: 4px 8px; font-size: 0.9rem;" title="Daima Üstte Kal"><i class="fas fa-thumbtack"></i></button>
                         <label class="switch-container" title="Sormadan varsayılan ayarlarla anında indir">

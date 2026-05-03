@@ -131,7 +131,15 @@ window.addEventListener('load', () => {
                 });
                 const data = await res.json();
                 if (data.success) {
-                    saveDirBtn.style.display = 'none';
+                    saveDirBtn.textContent = '✓ Kaydedildi';
+                    saveDirBtn.style.background = 'var(--success)';
+                    saveDirBtn.style.color = '#fff';
+                    setTimeout(() => {
+                        saveDirBtn.style.display = 'none';
+                        saveDirBtn.textContent = 'Kaydet';
+                        saveDirBtn.style.background = '';
+                        saveDirBtn.style.color = '';
+                    }, 1500);
                 }
             } catch (e) {
                 console.error('Settings save error:', e);
@@ -241,6 +249,8 @@ window.addEventListener('load', () => {
                 fetch('/api/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: dlId, action: 'pause'}) });
             } else if (btn.classList.contains('resume-btn')) {
                 fetch('/api/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: dlId, action: 'resume'}) });
+            } else if (btn.classList.contains('cancel-btn')) {
+                fetch('/api/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: dlId, action: 'cancel'}) });
             } else if (btn.classList.contains('details-btn')) {
                 activeDetailsId = dlId;
                 if (detailsModal) detailsModal.style.display = 'block';
@@ -253,6 +263,26 @@ window.addEventListener('load', () => {
 
     // Network request deduplication cache
     let isFetchingInfo = false;
+
+    // URL validation helper
+    function isValidUrl(str) {
+        try { new URL(str); return true; } catch { return false; }
+    }
+
+    // Inline URL validation feedback
+    if (urlInput) {
+        urlInput.addEventListener('input', () => {
+            const val = urlInput.value.trim();
+            if (!val) {
+                urlInput.style.borderColor = '';
+                return;
+            }
+            urlInput.style.borderColor = isValidUrl(val) ? 'var(--success)' : 'var(--danger)';
+        });
+        urlInput.addEventListener('blur', () => {
+            urlInput.style.borderColor = '';
+        });
+    }
 
     // Main Download Trigger
     if (addBtn) {
@@ -334,6 +364,7 @@ window.addEventListener('load', () => {
                     body: JSON.stringify({ 
                         url: currentVideoInfo.url,
                         title: currentVideoInfo.title,
+                        thumbnail: currentVideoInfo.thumbnail || null,
                         quality: selectedQuality,
                         isPlaylist: modalPlaylistCheck ? modalPlaylistCheck.checked : (isPlaylistCheck ? isPlaylistCheck.checked : false),
                         autoOpen: modalAutoOpenCheck ? modalAutoOpenCheck.checked : true,
@@ -363,10 +394,29 @@ window.addEventListener('load', () => {
             renderList();
         });
 
+        socket.on('download-cancelled', (data) => {
+            delete activeDownloads[data.id];
+            const card = document.getElementById(`dl-${data.id}`);
+            if (card) {
+                card.style.transition = 'opacity 0.2s, transform 0.2s';
+                card.style.opacity = '0';
+                card.style.transform = 'translateX(20px)';
+                setTimeout(() => {
+                    card.remove();
+                    if (downloadList && !downloadList.querySelector('.download-card')) {
+                        downloadList.innerHTML = `<div class="empty-state"><i class="fas fa-cloud-download-alt"></i><p>${typeof t === 'function' ? t('no_downloads') : 'No downloads yet.'}</p></div>`;
+                    }
+                }, 200);
+            }
+            if (activeDetailsId === data.id) {
+                if (detailsModal) detailsModal.style.display = 'none';
+                activeDetailsId = null;
+            }
+        });
+
         socket.on('progress', (data) => {
             if (!activeDownloads[data.id]) activeDownloads[data.id] = data;
-            else Object.assign(activeDownloads[data.id], data);
-            
+            else Object.assign(activeDownloads[data.id], data);            
             let dl = activeDownloads[data.id];
             if (!dl.speedHistory) dl.speedHistory = [];
             
@@ -389,20 +439,31 @@ window.addEventListener('load', () => {
     }
 
     function maybeNotify(dl) {
-        if (!lowNoiseNotificationCheck || !lowNoiseNotificationCheck.checked) return;
-        const status = dl.status;
-        if (!['completed', 'failed'].includes(status) && !(String(status).toLowerCase().includes('hata'))) return;
+        const notificationsEnabled = lowNoiseNotificationCheck ? lowNoiseNotificationCheck.checked : true;
+        if (!notificationsEnabled) return;
+        const status = String(dl.status || '');
+        if (!['completed', 'failed'].includes(status) && !status.startsWith('error:')) return;
         const cacheKey = `${dl.id}:${status}`;
         if (lastNotifyById[cacheKey]) return;
         lastNotifyById[cacheKey] = true;
         if ('Notification' in window) {
+            const notifTitle = status === 'completed' ? `UniGet - ${typeof t === 'function' ? t('completed_status') : 'Completed'}` : `UniGet - ${typeof t === 'function' ? t('error') : 'Error'}`;
+            const showNotif = () => {
+                const n = new Notification(notifTitle, { body: dl.title || 'Download task', silent: false });
+                // Click brings app to front
+                n.onclick = () => {
+                    try { require('electron').ipcRenderer.send('focus-window'); } catch(e) {}
+                    window.focus();
+                    n.close();
+                };
+            };
             if (Notification.permission === 'granted') {
-                new Notification(`UniGet - ${status}`, { body: dl.title || 'Download task' });
+                showNotif();
                 return;
             }
             if (Notification.permission !== 'denied') {
                 Notification.requestPermission().then((perm) => {
-                    if (perm === 'granted') new Notification(`UniGet - ${status}`, { body: dl.title || 'Download task' });
+                    if (perm === 'granted') showNotif();
                 }).catch(() => {});
             }
         }
@@ -440,10 +501,11 @@ window.addEventListener('load', () => {
         let dlArray = Object.values(activeDownloads).reverse();
         
         dlArray = dlArray.filter(dl => {
+            const status = String(dl.status || '');
             if (currentView === 'all') return true;
-            if (currentView === 'completed') return dl.status === 'completed';
+            if (currentView === 'completed') return status === 'completed';
             if (currentView === 'downloading') {
-                return dl.status !== 'completed' && !dl.status.toLowerCase().includes('hata') && dl.status !== 'failed';
+                return status !== 'completed' && !status.startsWith('error:') && status !== 'failed';
             }
             return true;
         });
@@ -482,26 +544,40 @@ window.addEventListener('load', () => {
         const actions = card.querySelector('.card-actions');
 
         if (progressBar) progressBar.style.width = `${dl.progress || 0}%`;
-        let statusText = dl.status === 'completed' ? (typeof t === 'function' ? t('completed_status') : 'Completed') : (dl.status === 'paused' ? (typeof t === 'function' ? t('paused_status') : 'Paused') : dl.status);
+        const rawStatus = dl.status || '';
+        let statusText;
+        if (rawStatus === 'completed') {
+            statusText = typeof t === 'function' ? t('completed_status') : 'Completed';
+        } else if (rawStatus === 'paused') {
+            statusText = typeof t === 'function' ? t('paused_status') : 'Paused';
+        } else if (rawStatus === 'failed') {
+            statusText = typeof t === 'function' ? t('error') : 'Error';
+        } else if (rawStatus.startsWith('error:')) {
+            statusText = rawStatus.replace('error:', '').substring(0, 80);
+        } else {
+            statusText = rawStatus.substring(0, 80);
+        }
+        // Sanitize for safe innerHTML insertion
+        const safeStatus = statusText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
         if (meta) {
             meta.innerHTML = `
                 <span><i class="fas fa-percent"></i> ${dl.progress || 0}%</span>
                 <span><i class="fas fa-tachometer-alt"></i> ${dl.speed || '--'}</span>
                 <span><i class="fas fa-clock"></i> ${dl.eta || '--:--'}</span>
-                <span class="status-badge" style="text-transform: capitalize;">${statusText}</span>
+                <span class="status-badge" style="text-transform: capitalize;">${safeStatus}</span>
             `;
         }
 
         card.classList.remove('completed', 'failed', 'paused', 'downloading');
         if (icon) {
-            if (dl.status === 'completed') {
+            if (rawStatus === 'completed') {
                 icon.className = 'fas fa-check';
                 card.classList.add('completed');
-            } else if (dl.status.toLowerCase().includes('hata') || dl.status === 'failed') {
+            } else if (rawStatus.startsWith('error:') || rawStatus === 'failed') {
                 icon.className = 'fas fa-exclamation-triangle';
                 card.classList.add('failed');
-            } else if (dl.status === 'paused') {
+            } else if (rawStatus === 'paused') {
                 icon.className = 'fas fa-pause';
                 card.classList.add('paused');
             } else {
@@ -511,14 +587,16 @@ window.addEventListener('load', () => {
         }
 
         if (actions) {
-            const isDownloading = ['downloading', 'starting', 'queued'].includes(dl.status);
-            const isPausedOrFailed = ['paused', 'failed'].includes(dl.status);
+            const isDownloading = ['downloading', 'starting', 'queued'].includes(rawStatus);
+            const isPausedOrFailed = ['paused', 'failed'].includes(rawStatus) || rawStatus.startsWith('error:');
             
             let actionButtons = '';
             if (isDownloading) {
                 actionButtons += `<button class="btn-icon pause-btn" title="${typeof t === 'function' ? t('pause') : 'Pause'}"><i class="fas fa-pause"></i></button>`;
+                actionButtons += `<button class="btn-icon cancel-btn" title="${typeof t === 'function' ? t('cancel') : 'Cancel'}" style="color:var(--danger)"><i class="fas fa-times"></i></button>`;
             } else if (isPausedOrFailed) {
                 actionButtons += `<button class="btn-icon resume-btn" title="${typeof t === 'function' ? t('resume') : 'Resume'}"><i class="fas fa-play"></i></button>`;
+                actionButtons += `<button class="btn-icon cancel-btn" title="${typeof t === 'function' ? t('cancel') : 'Cancel'}" style="color:var(--danger)"><i class="fas fa-times"></i></button>`;
             }
             actionButtons += `<button class="btn-icon details-btn" title="${typeof t === 'function' ? t('details_btn') : 'Details'}"><i class="fas fa-chart-line"></i></button>`;
             actionButtons += `<button class="btn-icon open-btn" title="${typeof t === 'function' ? t('open_folder') : 'Open'}"><i class="fas fa-folder-open"></i></button>`;
@@ -585,10 +663,14 @@ window.addEventListener('load', () => {
         const card = document.createElement('div');
         card.className = 'download-card';
         card.id = `dl-${dl.id}`;
+        const safeTitle = (dl.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        const thumbHtml = dl.thumbnail
+            ? `<img class="card-thumb" src="${dl.thumbnail.replace(/"/g,'&quot;')}" alt="" loading="lazy">`
+            : `<div class="card-icon"><i class="fas fa-arrow-down"></i></div>`;
         card.innerHTML = `
-            <div class="card-icon"><i class="fas fa-arrow-down"></i></div>
+            ${thumbHtml}
             <div class="card-details">
-                <div class="card-title" title="${dl.title}">${(typeof t === 'function' ? (t(dl.title) || dl.title) : dl.title)} ${dl.isPlaylist ? ' [' + (typeof t === 'function' ? t('playlist') : 'PL') + ']' : ''}</div>
+                <div class="card-title" title="${safeTitle}">${safeTitle}${dl.isPlaylist ? ' <span style="opacity:0.5;font-size:0.75em">[PL]</span>' : ''}</div>
                 <div class="progress-container">
                     <div class="progress-bar" style="width: 0%"></div>
                 </div>
@@ -600,27 +682,34 @@ window.addEventListener('load', () => {
         return card;
     }
 
-    // Electron Clipboard Integration
+    // Electron Clipboard Integration — only check on window focus, not polling
     let electronClipboard = null;
     try {
-        const { clipboard } = require('electron');
+        const { clipboard, ipcRenderer } = require('electron');
         if (clipboard) electronClipboard = clipboard;
     } catch (e) {}
 
     let lastClipboardText = '';
-    if (electronClipboard) {
-        setInterval(() => {
-            if (document.hidden) return;
-            try {
-                const text = electronClipboard.readText().trim();
-                if (text && text !== lastClipboardText && (text.includes('youtube.com/') || text.includes('youtu.be/'))) {
-                    lastClipboardText = text;
-                    if (urlInput) urlInput.value = text;
-                    if (addBtn) addBtn.click();
+    function checkClipboard() {
+        if (!electronClipboard) return;
+        try {
+            const text = electronClipboard.readText().trim();
+            if (text && text !== lastClipboardText &&
+                (text.includes('youtube.com/') || text.includes('youtu.be/') ||
+                 text.includes('vimeo.com/') || text.includes('twitch.tv/'))) {
+                lastClipboardText = text;
+                if (urlInput) {
+                    urlInput.value = text;
+                    if (isQuickMode && addBtn) addBtn.click();
                 }
-            } catch (e) {}
-        }, 3000);
+            }
+        } catch (e) {}
     }
+
+    // Check on window focus instead of polling every 3s
+    window.addEventListener('focus', checkClipboard);
+    // Also check once on load in case app opened with URL in clipboard
+    setTimeout(checkClipboard, 800);
 
     // Final Support Button
     const donateBtn = document.getElementById('donateBtn');
@@ -714,9 +803,9 @@ window.addEventListener('load', () => {
         }
     });
 
-    // Extension Detection
+    // Extension Detection - check correct attribute set by content.js
     setInterval(() => {
-        const isExtensionActive = document.body.dataset.ytdlmExtension === "active";
+        const isExtensionActive = document.body.dataset.unigetExtension === "active";
         if (openSetupBtn) {
             if (isExtensionActive) {
                 openSetupBtn.style.color = "var(--text-dim)";

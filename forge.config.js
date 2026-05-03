@@ -11,6 +11,13 @@ module.exports = {
   rebuildConfig: {},
   makers: [
     {
+      name: '@electron-forge/maker-squirrel',
+      config: {
+        name: 'UniGet',
+        setupIcon: 'public/icon.ico'
+      },
+    },
+    {
       name: '@electron-forge/maker-zip',
       platforms: ['win32'],
     },

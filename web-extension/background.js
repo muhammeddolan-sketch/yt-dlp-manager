@@ -1,92 +1,80 @@
 const myBrowser = typeof browser !== 'undefined' ? browser : chrome;
 
-// Create context menu for YouTube links
+// ─── Context menu ─────────────────────────────────────────────────
 myBrowser.runtime.onInstalled.addListener(() => {
     myBrowser.contextMenus.create({
-        id: "uniget-download",
-        title: "Download Media with UniGet",
-        contexts: ["link", "video", "audio", "page"]
+        id: 'uniget-download',
+        title: 'Download with UniGet',
+        contexts: ['link', 'video', 'audio', 'page']
     });
 });
 
-// Handle context menu click
 myBrowser.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === "uniget-download") {
-        let urlToDownload = info.linkUrl || info.srcUrl || info.pageUrl;
-        // Prefer content-script UI flow; fallback to direct API call if receiver is missing.
-        myBrowser.tabs.sendMessage(tab.id, { action: "trigger_download", url: urlToDownload }, () => {
-            if (!myBrowser.runtime.lastError) return;
-            fetch('http://127.0.0.1:3000/api/download', {
-                method: 'POST',
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    url: urlToDownload,
-                    title: (tab && tab.title) ? tab.title : 'Media',
-                    quality: 'best',
-                    isPlaylist: false,
-                    autoOpen: true
-                })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data && data.id) {
-                    myBrowser.notifications.create({
-                        type: 'basic',
-                        iconUrl: 'icon48.png',
-                        title: 'UniGet',
-                        message: 'Download queued.'
-                    });
-                } else {
-                    throw new Error((data && data.error) || 'Download request failed');
-                }
-            })
-            .catch(() => {
-                myBrowser.notifications.create({
-                    type: 'basic',
-                    iconUrl: 'icon48.png',
-                    title: 'UniGet',
-                    message: 'Could not reach UniGet app on localhost:3000'
-                });
+    if (info.menuItemId !== 'uniget-download') return;
+    const url = info.linkUrl || info.srcUrl || info.pageUrl;
+
+    // Try to open the popup UI via content script first
+    myBrowser.tabs.sendMessage(tab.id, { action: 'trigger_download', url }, () => {
+        if (!myBrowser.runtime.lastError) return;
+        // Content script not available — fire direct API call
+        fetch('http://127.0.0.1:3000/api/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, title: tab?.title || 'Media', quality: 'best', isPlaylist: false, autoOpen: false })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data?.id) throw new Error(data?.error || 'failed');
+            myBrowser.notifications.create({
+                type: 'basic', iconUrl: 'icon48.png',
+                title: 'UniGet', message: 'İndirme kuyruğa eklendi.'
+            });
+        })
+        .catch(() => {
+            myBrowser.notifications.create({
+                type: 'basic', iconUrl: 'icon48.png',
+                title: 'UniGet', message: 'Uygulama bulunamadı (localhost:3000)'
             });
         });
-    }
+    });
 });
 
+// ─── Message relay (fetch proxy for content scripts) ──────────────
 myBrowser.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "notify") {
+    if (request.action === 'notify') {
         myBrowser.notifications.create({
-            type: 'basic',
-            iconUrl: 'icon48.png',
-            title: 'UniGet',
-            message: request.message
+            type: 'basic', iconUrl: 'icon48.png',
+            title: 'UniGet', message: request.message
         });
         return;
     }
 
-    // Handle generic fetch requests from content script
     if (request.type === 'fetch' || request.url) {
-        const url = (request.url || '').replace('localhost', '127.0.0.1');
+        const url     = request.url || '';
         const options = request.options || {};
-        
-        console.log(`BG Fetch to: ${url}`, options);
-        
+
         fetch(url, {
-            method: options.method || 'GET',
-            headers: options.headers || { "Content-Type": "application/json" },
-            body: options.body || undefined
+            method:  options.method  || 'GET',
+            headers: options.headers || { 'Content-Type': 'application/json' },
+            body:    options.body    || undefined
         })
-        .then(res => {
-            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        .then(async res => {
+            if (!res.ok) {
+                const text = await res.text().catch(() => '');
+                throw new Error(`HTTP ${res.status}: ${text}`);
+            }
             return res.json();
         })
-        .then(data => {
-            console.log('BG Fetch Success:', data);
-            sendResponse(data);
-        })
+        .then(data => sendResponse(data))
         .catch(err => {
-            console.error('BG Fetch Error:', err);
-            sendResponse({ error: "Background Fetch Failed: " + (err.message || 'Unknown') });
+            // localhost → 127.0.0.1 fallback (one retry)
+            if (url.includes('localhost') && !request._retried) {
+                const fallback = url.replace('localhost', '127.0.0.1');
+                myBrowser.runtime.sendMessage({ ...request, url: fallback, _retried: true }, sendResponse);
+                return;
+            }
+            sendResponse({ error: err.message || 'Fetch failed' });
         });
-        return true; 
+        return true; // keep channel open for async sendResponse
     }
 });

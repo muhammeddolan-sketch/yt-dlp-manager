@@ -1,43 +1,58 @@
 $ErrorActionPreference = "Stop"
 
-$projectDir = "c:\Projeler\yt-dlp-manager"
-$pngPath = Join-Path $projectDir "public\icon.png"
-$icoPath = Join-Path $projectDir "public\icon.ico"
+$projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$pngPath    = Join-Path $projectDir "public\icon.png"
+$icoPath    = Join-Path $projectDir "public\icon.ico"
+$launcher   = Join-Path $projectDir "launcher.bat"
 
-# Convert PNG to ICO
-Add-Type -AssemblyName System.Drawing
-$img = [System.Drawing.Image]::FromFile($pngPath)
-$bmp = new-object System.Drawing.Bitmap($img)
-$hicon = $bmp.GetHicon()
-$icon = [System.Drawing.Icon]::FromHandle($hicon)
-$fs = [System.IO.File]::Create($icoPath)
-$icon.Save($fs)
-$fs.Close()
-$img.Dispose()
-$bmp.Dispose()
-
-# Create Shortcut
-$wshShell = New-Object -ComObject WScript.Shell
-$desktop = [System.Environment]::GetFolderPath('Desktop')
-$shortcutPath = Join-Path $desktop "UniGet.lnk"
-$shortcut = $wshShell.CreateShortcut($shortcutPath)
-
-# Point to electron.exe directly so no command window flashes
-$targetPath = Join-Path $projectDir "node_modules\electron\dist\electron.exe"
-if (-not (Test-Path $targetPath)) {
-    # Fallback to npm if electron executable is not found
-    $targetPath = "npm.cmd"
-    $shortcut.Arguments = "start"
-    $shortcut.WindowStyle = 7 # Minimized
-} else {
-    $shortcut.Arguments = "."
-    $shortcut.WindowStyle = 1 # Normal
+# ─── PNG → ICO ───────────────────────────────────────────────────
+if (Test-Path $pngPath) {
+    try {
+        Add-Type -AssemblyName System.Drawing
+        $img   = [System.Drawing.Image]::FromFile($pngPath)
+        $bmp   = New-Object System.Drawing.Bitmap($img)
+        $hicon = $bmp.GetHicon()
+        $icon  = [System.Drawing.Icon]::FromHandle($hicon)
+        $fs    = [System.IO.File]::Create($icoPath)
+        $icon.Save($fs)
+        $fs.Close()
+        $img.Dispose(); $bmp.Dispose()
+        Write-Host "ICO olusturuldu."
+    } catch {
+        Write-Warning "ICO olusturulamadi: $_"
+    }
 }
 
-$shortcut.TargetPath = $targetPath
-$shortcut.WorkingDirectory = $projectDir
-$shortcut.IconLocation = "$icoPath, 0"
-$shortcut.Description = "Launch UniGet"
-$shortcut.Save()
+# ─── Kısayol oluştur ─────────────────────────────────────────────
+$wshShell = New-Object -ComObject WScript.Shell
 
-Write-Host "Shortcut created at: $shortcutPath"
+function Make-Shortcut($path) {
+    $sc = $wshShell.CreateShortcut($path)
+    # Doğrudan .bat dosyasını hedef al — cmd penceresi açılmaz
+    $sc.TargetPath       = $launcher
+    $sc.WorkingDirectory = $projectDir
+    $sc.WindowStyle      = 7          # minimized = konsol görünmez
+    $sc.Description      = "UniGet - YouTube Downloader"
+    if (Test-Path $icoPath) {
+        $sc.IconLocation = "$icoPath, 0"
+    }
+    $sc.Save()
+}
+
+# Masaüstü
+$desktop = [System.Environment]::GetFolderPath('Desktop')
+$lnk     = Join-Path $desktop "UniGet.lnk"
+Make-Shortcut $lnk
+Write-Host "Masaustu kisayolu: $lnk"
+
+# Başlat Menüsü
+try {
+    $startMenu = Join-Path ([System.Environment]::GetFolderPath('StartMenu')) "Programs"
+    Make-Shortcut (Join-Path $startMenu "UniGet.lnk")
+    Write-Host "Baslat menusu kisayolu olusturuldu."
+} catch {
+    Write-Warning "Baslat menusu: $_"
+}
+
+Write-Host ""
+Write-Host "Tamamlandi! Masaustundeki UniGet ikonuna cift tiklayin."
