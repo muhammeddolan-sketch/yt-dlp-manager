@@ -1,5 +1,5 @@
 (function() {
-    // UniGet Pro v1.5.1 Content Script
+    // UniGet Pro v1.5.2 Content Script
 
     const messages = {
         tr: { download: "İndir", quality: "Kalite", processing: "Hazırlanıyor...", playlist: "Çalma Listesi", auto_open: "Klasörü Aç", close: "Kapat", completed: "Tamamlandı!", error: "Hata!", start_time: "Başlangıç", end_time: "Bitiş (opsiyonel)" },
@@ -48,7 +48,7 @@
     const nameSpan = document.createElement('span');
     nameSpan.innerText = 'UniGet';
     const verSpan = document.createElement('span');
-    verSpan.innerText = 'v1.5.1';
+    verSpan.innerText = 'v1.5.2';
     titleDiv.append(nameSpan, verSpan);
 
     // Video info

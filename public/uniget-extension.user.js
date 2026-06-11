@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UniGet Web Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.5.1
+// @version      1.5.2
 // @description  Adds a clean floating download button to all videos
 // @author       Antigravity
 // @match        *://*/*
@@ -185,7 +185,7 @@
         GM_xmlhttpRequest({
             method: "POST",
             url: "http://localhost:3000/api/info",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-UniGet-Client": "userscript" },
             data: JSON.stringify({ url: videoUrl }),
             onload: function(response) {
                 try {
@@ -195,7 +195,7 @@
                     GM_xmlhttpRequest({
                         method: "POST",
                         url: "http://localhost:3000/api/download",
-                        headers: { "Content-Type": "application/json" },
+                        headers: { "Content-Type": "application/json", "X-UniGet-Client": "userscript" },
                         data: JSON.stringify({ url: videoUrl, title: info.title, quality: quality, isPlaylist: isPlaylist, hasSubtitles: hasSubtitles }),
                         onload: function(dlResponse) {
                             try {

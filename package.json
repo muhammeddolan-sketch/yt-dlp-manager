@@ -1,6 +1,6 @@
 {
   "name": "yt-dlp-manager",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Premium YT-DLP GUI Manager",
   "main": "main.js",
   "scripts": {
@@ -10,7 +10,8 @@
     "dist:win": "electron-builder --win nsis",
     "make": "electron-forge make",
     "package": "electron-forge package",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --check server.js && node --check main.js && node --check preload.js && node --check public/app.js && node --check public/uniget-extension.user.js && node --check web-extension/background.js && node --check web-extension/content.js && node tests/api-smoke.test.js",
+    "pack:extension": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path 'UniGet-Extension-v1.5.2.zip') { Remove-Item 'UniGet-Extension-v1.5.2.zip' -Force }; Compress-Archive -Path 'web-extension/*' -DestinationPath 'UniGet-Extension-v1.5.2.zip' -Force\""
   },
   "build": {
     "appId": "com.uniget.app",

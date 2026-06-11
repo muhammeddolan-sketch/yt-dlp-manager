@@ -49,7 +49,9 @@ const translations = {
         setup_title: "Tarayıcı Eklentisini Kurun",
         setup_desc: "YouTube ve diğer sitelerden tek tıkla indirme yapmak için tarayıcı eklentisini kurmanız önerilir. Eklenti yüklü olduğunda videoların üzerinde otomatik indirme butonu belirir.",
         settings: "Ayarlar",
-        got_it: "Anladım"
+        got_it: "Anladım",
+        start_time: "Başlangıç Zamanı",
+        end_time: "Bitiş Zamanı"
     },
     en: {
         app_title: "UniGet",
@@ -101,7 +103,9 @@ const translations = {
         setup_title: "Install Browser Extension",
         setup_desc: "It is recommended to install the browser extension for one-click downloads from YouTube and other sites. Once installed, a download button will automatically appear on videos.",
         settings: "Settings",
-        got_it: "Got it"
+        got_it: "Got it",
+        start_time: "Start Time",
+        end_time: "End Time"
     },
     de: {
         app_title: "UniGet",
