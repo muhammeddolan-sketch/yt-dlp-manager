@@ -6,10 +6,14 @@ const http = require('http');
 // Optimization: Disable hardware acceleration
 app.disableHardwareAcceleration();
 
+if (!app.isPackaged) {
+    app.setPath('userData', path.join(__dirname, '.tmp', 'electron-user-data'));
+}
+
 // SINGLE INSTANCE LOCK
-const gotTheLock = app.requestSingleInstanceLock();
+const gotTheLock = !app.isPackaged || app.requestSingleInstanceLock();
 app.setName('UniGet');
-app.setAppUserModelId('com.antigravity.uniget');
+app.setAppUserModelId('com.uniget.app');
 
 if (!gotTheLock) {
     app.quit();
@@ -43,7 +47,7 @@ function isServerAlive(url, timeoutMs = 600) {
             res.on('end', () => {
                 try {
                     const json = JSON.parse(data);
-                    resolve(json.status === 'ok');
+                    resolve(json.status === 'ok' && json.app === 'UniGet');
                 } catch (e) {
                     resolve(false);
                 }
@@ -59,11 +63,21 @@ function isServerAlive(url, timeoutMs = 600) {
 
 async function startServer() {
     // If something is already listening (likely a previous instance), don't start a new one.
-    const alive = await isServerAlive('http://localhost:3000');
+    const alive = await isServerAlive('http://127.0.0.1:3000');
     if (alive) return;
 
     serverProcess = fork(path.join(__dirname, 'server.js'), [], {
         env: { ...process.env, PORT: '3000' }
+    });
+
+    serverProcess.on('error', (err) => {
+        console.error('Failed to start server process:', err);
+    });
+
+    serverProcess.on('exit', (code, signal) => {
+        if (code !== 0 && signal !== 'SIGTERM') {
+            console.error(`Server process exited with code ${code} and signal ${signal}`);
+        }
     });
 }
 
@@ -130,8 +144,9 @@ function createMainWindow() {
         autoHideMenuBar: true,
         backgroundColor: '#09090b',
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
+            preload: path.join(__dirname, 'preload.js'),
+            nodeIntegration: false,
+            contextIsolation: true,
             backgroundThrottling: true,
             spellcheck: false,
             enableWebSQL: false,
@@ -195,13 +210,14 @@ function waitForServer(url, retries = 30, delayMs = 200) {
 
 async function loadMainWindowWhenServerReady() {
     try {
-        await waitForServer('http://localhost:3000');
+        await waitForServer('http://127.0.0.1:3000');
         if (mainWindow && !mainWindow.isDestroyed()) {
-            await mainWindow.loadURL('http://localhost:3000');
+            await mainWindow.loadURL('http://127.0.0.1:3000');
         }
     } catch (error) {
+        dialog.showErrorBox('Server Error', 'UniGet backend server failed to start. Please try restarting the application.');
         if (mainWindow && !mainWindow.isDestroyed()) {
-            await mainWindow.loadURL('http://localhost:3000');
+            await mainWindow.loadURL('http://127.0.0.1:3000');
         }
     }
 }
@@ -241,8 +257,9 @@ function createMiniWindow() {
         resizable: false,
         skipTaskbar: true,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
+            preload: path.join(__dirname, 'preload.js'),
+            nodeIntegration: false,
+            contextIsolation: true,
             backgroundThrottling: true,
             spellcheck: false,
             enableWebSQL: false,
@@ -294,6 +311,15 @@ ipcMain.handle('select-folder', async () => {
 
 app.on('ready', () => {
     if (!gotTheLock) return;
+
+    if (app.isPackaged) {
+        app.setLoginItemSettings({
+            openAtLogin: true,
+            path: app.getPath('exe'),
+            args: ['--hidden']
+        });
+    }
+
     startServer();
     createTray();
     if (!isHiddenStartup) {

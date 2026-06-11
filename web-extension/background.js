@@ -1,5 +1,30 @@
 const myBrowser = typeof browser !== 'undefined' ? browser : chrome;
 
+function isAllowedFetchUrl(value) {
+    try {
+        const parsed = new URL(value);
+        if ((parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
+            parsed.protocol === 'http:' &&
+            parsed.port === '3000') {
+            return true;
+        }
+        return parsed.protocol === 'https:' && parsed.hostname === 'noembed.com';
+    } catch {
+        return false;
+    }
+}
+
+function isUniGetApiUrl(value) {
+    try {
+        const parsed = new URL(value);
+        return (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
+            parsed.protocol === 'http:' &&
+            parsed.port === '3000';
+    } catch {
+        return false;
+    }
+}
+
 // ─── Context menu ─────────────────────────────────────────────────
 myBrowser.runtime.onInstalled.addListener(() => {
     myBrowser.contextMenus.create({
@@ -19,7 +44,7 @@ myBrowser.contextMenus.onClicked.addListener((info, tab) => {
         // Content script not available — fire direct API call
         fetch('http://127.0.0.1:3000/api/download', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-UniGet-Client': 'extension' },
             body: JSON.stringify({ url, title: tab?.title || 'Media', quality: 'best', isPlaylist: false, autoOpen: false })
         })
         .then(r => r.json())
@@ -52,10 +77,17 @@ myBrowser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'fetch' || request.url) {
         const url     = request.url || '';
         const options = request.options || {};
+        if (!isAllowedFetchUrl(url)) {
+            sendResponse({ error: 'URL not allowed' });
+            return;
+        }
+
+        const headers = { ...(options.headers || { 'Content-Type': 'application/json' }) };
+        if (isUniGetApiUrl(url)) headers['X-UniGet-Client'] = 'extension';
 
         fetch(url, {
             method:  options.method  || 'GET',
-            headers: options.headers || { 'Content-Type': 'application/json' },
+            headers,
             body:    options.body    || undefined
         })
         .then(async res => {

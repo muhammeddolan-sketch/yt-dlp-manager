@@ -8,12 +8,36 @@ const fs = require('fs');
 const os = require('os');
 const https = require('https');
 const cors = require('cors');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
+function isAllowedOrigin(origin) {
+    if (!origin) return true;
+    try {
+        const parsed = new URL(origin);
+        const host = parsed.hostname;
+        const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+        if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && isLoopback) return true;
+        if (parsed.protocol === 'chrome-extension:' || parsed.protocol === 'moz-extension:') return true;
+    } catch {}
+    return false;
+}
+
+const corsOptions = {
+    allowedHeaders: ['Content-Type', 'X-UniGet-Client'],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    origin(origin, callback) {
+        callback(null, isAllowedOrigin(origin));
+    }
+};
+
 const io = new Server(server, {
-    cors: { origin: "*" },
-    transports: ['websocket'],
+    cors: corsOptions,
+    allowRequest(req, callback) {
+        callback(null, isAllowedOrigin(req.headers.origin));
+    },
+    transports: ['websocket', 'polling'],
     perMessageDeflate: false,
     pingInterval: 25000,
     pingTimeout: 20000
@@ -62,9 +86,17 @@ let DOWNLOADS_DIR = appConfig.downloadDir;
 
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(compression());
 app.use(express.json());
+app.use('/api', (req, res, next) => {
+    if (req.method === 'OPTIONS' || req.method === 'GET') return next();
+    const client = String(req.get('X-UniGet-Client') || '');
+    if (!['desktop', 'extension', 'userscript'].includes(client)) {
+        return res.status(403).json({ error: 'UniGet client header is required' });
+    }
+    next();
+});
 // Static assets with long cache (css, js, images don't change between restarts)
 app.use(express.static(path.join(__dirname, 'public'), {
     maxAge: '1h',
@@ -72,8 +104,65 @@ app.use(express.static(path.join(__dirname, 'public'), {
     lastModified: true
 }));
 
+app.get('/extension/chrome-package', (req, res) => {
+    const packagePath = path.join(__dirname, 'UniGet-Extension-v1.5.2.zip');
+    if (!fs.existsSync(packagePath)) {
+        return res.status(404).json({ error: 'Chrome extension package not found' });
+    }
+    res.download(packagePath, 'UniGet-Extension-v1.5.2.zip');
+});
+
 let downloads = {};
 const progressEmitState = {};
+
+function parseHttpUrl(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length > 4096) return null;
+    try {
+        const parsed = new URL(trimmed);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+        return parsed.toString();
+    } catch {
+        return null;
+    }
+}
+
+function normalizeQuality(value) {
+    const quality = String(value || 'best');
+    return ['best', '2160', '1440', '1080', '720', '480', 'audio'].includes(quality) ? quality : 'best';
+}
+
+function normalizeTime(value) {
+    if (!value) return null;
+    const time = String(value).trim();
+    if (!/^\d{1,2}(:[0-5]\d){1,2}$/.test(time)) return null;
+    return time;
+}
+
+function hasInvalidTime(value) {
+    return !!value && normalizeTime(value) === null;
+}
+
+function normalizeTitle(value) {
+    if (typeof value !== 'string') return 'processed';
+    return value.trim().slice(0, 300) || 'processed';
+}
+
+function isSafeDownloadDir(value) {
+    if (typeof value !== 'string') return false;
+    const dir = value.trim();
+    return dir.length > 0 && dir.length <= 1024 && path.isAbsolute(dir);
+}
+
+function isDirectMediaUrl(value) {
+    try {
+        const parsed = new URL(value);
+        return /\.(mp4|m4v|webm|mov|mkv|mp3|m4a|aac|wav|flac|ogg)(?:$|[?#])/i.test(parsed.pathname);
+    } catch {
+        return false;
+    }
+}
 
 // ─── Persist completed/failed downloads across restarts ──────────
 function getDownloadsStatePath() {
@@ -181,7 +270,7 @@ function downloadFile(url, destPath) {
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
         const file = fs.createWriteStream(destPath);
 
-        const request = https.get(url, { headers: { 'User-Agent': 'UniGet Pro v1.5.1' } }, (res) => {
+        const request = https.get(url, { headers: { 'User-Agent': 'UniGet Pro v1.5.2' } }, (res) => {
             // Follow redirects
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 file.close(() => {
@@ -245,7 +334,7 @@ async function ensureYtDlpAvailable() {
         }
     }
 
-    if (cmd !== 'yt-dlp' && cmd !== 'yt-dlp.exe' && fs.existsSync(cmd)) {
+    if (cmd && cmd !== 'yt-dlp' && cmd !== 'yt-dlp.exe' && path.isAbsolute(cmd) && fs.existsSync(cmd)) {
         if (fs.statSync(cmd).size > 1000000) {
            _cachedYtDlpPath = cmd;
            return cmd; 
@@ -304,18 +393,8 @@ async function hasFfmpeg() {
             if (fs.existsSync(bundledFfmpeg)) {
                 result = true;
             } else {
-                // Try to auto-download FFmpeg for Windows
-                console.log('FFmpeg not found, attempting to auto-download...');
-                try {
-                    // Download a minimal static build of ffmpeg for Windows
-                    const ffmpegUrl = 'https://github.com/GyanD/codexffmpeg/releases/download/2024-03-25-git-456079e001/ffmpeg-2024-03-25-git-456079e001-essentials_build.zip';
-                    // Note: In a real production app, you might want to use a more stable/direct link or a smaller binary.
-                    // For now, let's assume we want to guide the user or use a pre-hosted link if available.
-                    // To keep it simple and fast, we'll mark it as unavailable but provide a fallback logic in yt-dlp if it's missing.
-                    result = false;
-                } catch (e) {
-                    result = false;
-                }
+                console.log('FFmpeg not found; using progressive format fallback.');
+                result = false;
             }
         }
     } else {
@@ -370,8 +449,8 @@ io.on('connection', (socket) => {
 });
 
 app.post('/api/info', async (req, res) => {
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ error: 'URL is required' });
+    const url = parseHttpUrl(req.body.url);
+    if (!url) return res.status(400).json({ error: 'Valid HTTP(S) URL is required' });
 
     // Deduplicate concurrent requests for the same URL
     if (infoCache.has(url)) {
@@ -385,7 +464,7 @@ app.post('/api/info', async (req, res) => {
 
     const infoPromise = new Promise(async (resolve, reject) => {
         const ytDlpCmd = await ensureYtDlpAvailable();
-        const proc = spawn(ytDlpCmd, ['-j', '--no-playlist', url]);
+        const proc = spawn(ytDlpCmd, ['--js-runtimes', 'node', '-j', '--no-playlist', url]);
         let output = '';
         let stderr = '';
 
@@ -405,6 +484,7 @@ app.post('/api/info', async (req, res) => {
                 try {
                     const info = JSON.parse(output);
                     const result = {
+                        url,
                         title: info.title,
                         thumbnail: info.thumbnail,
                         duration: info.duration_string,
@@ -415,7 +495,8 @@ app.post('/api/info', async (req, res) => {
                     reject(new Error('Failed to parse info'));
                 }
             } else {
-                reject(new Error('yt-dlp failed'));
+                const message = stderr.trim() || 'yt-dlp failed';
+                reject(new Error(message.substring(0, 300)));
             }
             // Clear from cache after a short delay (e.g. 5s) to allow new requests if needed
             setTimeout(() => infoCache.delete(url), 5000);
@@ -498,10 +579,11 @@ async function startDownloadTask(id) {
     let args = [
         '--newline',
         dl.isPlaylist ? '--yes-playlist' : '--no-playlist',
-        '--force-overwrites',
+        '--continue',
         '--no-abort-on-error',
         '--no-warnings',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        '--js-runtimes', 'node',
         '--progress',
         '--progress-template', '%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
         '--retries', String(retryLimit),
@@ -527,8 +609,12 @@ async function startDownloadTask(id) {
         args.push('--force-keyframes-at-cuts');
     }
 
+    const directMediaUrl = isDirectMediaUrl(dl.url);
     if (dl.quality === 'audio') {
         args.push('-x', '--audio-format', 'mp3', '--audio-quality', '0');
+    } else if (directMediaUrl) {
+        dl.status = 'direct media download';
+        emitDownloadProgress(dl, true);
     } else {
         args.push('--format', formatOption);
         if (ffmpegAvailable) {
@@ -577,8 +663,9 @@ async function startDownloadTask(id) {
         const chunk = data.toString();
         if (stderrBuf.length < 4096) stderrBuf += chunk;
         if (chunk.includes('ERROR:')) {
-            console.warn(`[yt-dlp stderr]: ${chunk}`);
-            dl.status = `error:${chunk.substring(0, 100)}`;
+            const cleanErr = chunk.replace('ERROR:', '').trim();
+            console.warn(`[yt-dlp error]: ${cleanErr}`);
+            dl.status = `error:${cleanErr.substring(0, 100)}`;
             emitDownloadProgress(dl, true);
         }
     });
@@ -624,8 +711,13 @@ async function startDownloadTask(id) {
 }
 
 app.post('/api/download', (req, res) => {
-    const { url, title, quality, isPlaylist, autoOpen, startTime, endTime, isOnBattery, profile, embedSubtitles, subtitleLangs, smartPlaylist, thumbnail } = req.body;
-    const id = Date.now().toString();
+    const { isPlaylist, autoOpen, isOnBattery, profile, thumbnail } = req.body;
+    const url = parseHttpUrl(req.body.url);
+    if (!url) return res.status(400).json({ error: 'Valid HTTP(S) URL is required' });
+    if (hasInvalidTime(req.body.startTime) || hasInvalidTime(req.body.endTime)) {
+        return res.status(400).json({ error: 'Time values must be HH:MM or HH:MM:SS' });
+    }
+    const id = crypto.randomUUID();
     const configuredMode = appConfig.powerMode || 'auto';
     let effectivePowerMode = configuredMode;
     if (configuredMode === 'auto') {
@@ -635,14 +727,14 @@ app.post('/api/download', (req, res) => {
     downloads[id] = {
         id,
         url,
-        title: title || 'processed',
+        title: normalizeTitle(req.body.title),
         thumbnail: thumbnail || null,
-        quality: quality || 'best',
+        quality: normalizeQuality(req.body.quality),
         isPlaylist: !!isPlaylist,
         autoOpen: !!autoOpen,
-        startTime: startTime || null,
-        endTime: endTime || null,
-        profile: profile || 'custom',
+        startTime: normalizeTime(req.body.startTime),
+        endTime: normalizeTime(req.body.endTime),
+        profile: typeof profile === 'string' ? profile.slice(0, 80) : 'custom',
         effectivePowerMode,
         rateLimitKbps: appConfig.rateLimitKbps || 0,
         retryEnabled: appConfig.smartRetry !== false,
@@ -792,7 +884,10 @@ function debouncedConfigWrite() {
 
 app.post('/api/settings', (req, res) => {
     if (req.body.downloadDir) {
-        appConfig.downloadDir = req.body.downloadDir;
+        if (!isSafeDownloadDir(req.body.downloadDir)) {
+            return res.status(400).json({ error: 'Download directory must be an absolute path' });
+        }
+        appConfig.downloadDir = req.body.downloadDir.trim();
         DOWNLOADS_DIR = appConfig.downloadDir;
         try {
             if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
@@ -819,8 +914,36 @@ app.get('/api/settings', (req, res) => {
     res.json(appConfig);
 });
 
+app.get('/api/tools', async (req, res) => {
+    try {
+        const ytDlpCmd = resolveYtDlpCmd();
+        const ffmpegAvailable = await hasFfmpeg();
+        res.json({
+            ytDlp: {
+                command: ytDlpCmd,
+                bundled: ytDlpCmd === getBundledYtDlpPath()
+            },
+            ffmpeg: {
+                available: ffmpegAvailable,
+                mode: ffmpegAvailable ? 'full-quality' : 'progressive-fallback'
+            }
+        });
+    } catch (e) {
+        res.json({
+            ytDlp: {
+                command: resolveYtDlpCmd(),
+                bundled: false
+            },
+            ffmpeg: {
+                available: false,
+                mode: 'progressive-fallback'
+            }
+        });
+    }
+});
+
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.5.1' });
+    res.json({ status: 'ok', version: '1.5.2', app: 'UniGet' });
 });
 
 server.on('error', (err) => {
@@ -855,4 +978,11 @@ function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-server.listen(PORT, '0.0.0.0', () => console.log(`Server running at http://0.0.0.0:${PORT}`));
+server.listen(PORT, '127.0.0.1', () => {
+    const addr = server.address();
+    const bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
+    console.log(`Server running on loopback at http://127.0.0.1:${addr.port}`);
+}).on('error', (err) => {
+    console.error(`Server binding to 127.0.0.1 failed (${err.code}).`);
+    process.exit(1);
+});

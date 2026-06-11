@@ -7,8 +7,7 @@
     "48": "icon48.png"
   },
   "background": {
-    "service_worker": "background.js",
-    "scripts": ["background.js"]
+    "service_worker": "background.js"
   },
   "web_accessible_resources": [
     {
@@ -35,7 +34,7 @@
   "host_permissions": [
     "http://localhost:3000/*",
     "http://127.0.0.1:3000/*",
-    "<all_urls>"
+    "https://noembed.com/*"
   ],
   "browser_specific_settings": {
     "gecko": {

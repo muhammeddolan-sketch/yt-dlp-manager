@@ -1,4 +1,4 @@
-// UniGet Pro v1.5.1 - Core Application Logic
+// UniGet Pro v1.5.2 - Core Application Logic
 window.addEventListener('load', () => {
     const socket = typeof io !== 'undefined' ? io({ transports: ['websocket'] }) : null;
     const urlInput = document.getElementById('urlInput');
@@ -22,17 +22,91 @@ window.addEventListener('load', () => {
     const rateLimitInput = document.getElementById('rateLimitInput');
     const smartRetryCheck = document.getElementById('smartRetryCheck');
     const lowNoiseNotificationCheck = document.getElementById('lowNoiseNotificationCheck');
+    const soundEffectsCheck = document.getElementById('soundEffectsCheck');
     const profileOption = document.getElementById('profileOption');
     const setupModal = document.getElementById('setupModal');
     const openSetupBtn = document.getElementById('openSetupBtn');
     const closeSetup = document.querySelector('.close-setup');
     const closeSetupBtn = document.getElementById('closeSetupBtn');
+    const toolStatus = document.getElementById('toolStatus');
+    const firefoxAddonBtn = document.getElementById('firefoxAddonBtn');
+    const chromePackageBtn = document.getElementById('chromePackageBtn');
 
     let currentVideoInfo = null;
     let activeDownloads = {};
     let currentView = 'all';
     let activeDetailsId = null;
     let lastNotifyById = {};
+    const apiJsonHeaders = { 'Content-Type': 'application/json', 'X-UniGet-Client': 'desktop' };
+    const apiClientHeaders = { 'X-UniGet-Client': 'desktop' };
+    const firefoxAddonUrl = 'https://addons.mozilla.org/tr/firefox/addon/yt-dlm-web-helper/';
+    const chromePackageUrl = 'http://localhost:3000/extension/chrome-package';
+    let audioContext = null;
+    let soundEnabled = localStorage.getItem('uniget_sound_effects') !== 'false';
+
+    if (soundEffectsCheck) {
+        soundEffectsCheck.checked = soundEnabled;
+        soundEffectsCheck.addEventListener('change', () => {
+            soundEnabled = soundEffectsCheck.checked;
+            localStorage.setItem('uniget_sound_effects', String(soundEnabled));
+            if (soundEnabled) playSound('toggle');
+        });
+    }
+
+    function getAudioContext() {
+        if (!soundEnabled || !window.AudioContext && !window.webkitAudioContext) return null;
+        if (!audioContext) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            audioContext = new AudioCtx();
+        }
+        if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+        return audioContext;
+    }
+
+    function playTone(ctx, start, freq, duration, volume, type = 'sine') {
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.start(start);
+        oscillator.stop(start + duration + 0.02);
+    }
+
+    function playSound(name) {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        const sounds = {
+            tap: [[0, 520, 0.045, 0.018, 'sine']],
+            toggle: [[0, 420, 0.045, 0.018, 'sine'], [0.045, 560, 0.055, 0.016, 'sine']],
+            open: [[0, 460, 0.05, 0.017, 'triangle'], [0.05, 620, 0.06, 0.014, 'triangle']],
+            start: [[0, 360, 0.055, 0.018, 'triangle'], [0.06, 520, 0.075, 0.018, 'triangle']],
+            success: [[0, 480, 0.065, 0.018, 'sine'], [0.07, 640, 0.08, 0.018, 'sine'], [0.15, 820, 0.11, 0.014, 'sine']],
+            error: [[0, 260, 0.085, 0.018, 'sawtooth'], [0.09, 180, 0.11, 0.014, 'sawtooth']]
+        };
+        (sounds[name] || sounds.tap).forEach(([offset, freq, duration, volume, type]) => {
+            playTone(ctx, now + offset, freq, duration, volume, type);
+        });
+    }
+
+    function openExternalUrl(url) {
+        try {
+            if (!window.unigetAPI || !window.unigetAPI.openExternal(url)) throw new Error('openExternal unavailable');
+        } catch(e) {
+            window.open(url, '_blank');
+        }
+    }
+
+    document.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('button, .nav-item, select, input[type="checkbox"]')) {
+            playSound('tap');
+        }
+    }, { passive: true });
 
     // Theme Initialization
     const savedTheme = localStorage.getItem('uniget_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -60,8 +134,7 @@ window.addEventListener('load', () => {
         
         window.onLangChange = (lang) => {
             try {
-                const { ipcRenderer } = require('electron');
-                if (ipcRenderer) ipcRenderer.send('change-lang', lang);
+                if (window.unigetAPI) window.unigetAPI.changeLang(lang);
             } catch(e) { /* Non-Electron environment */ }
         };
         
@@ -78,7 +151,7 @@ window.addEventListener('load', () => {
         autostartCheck.addEventListener('change', async () => {
             await fetch('/api/autostart', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: apiJsonHeaders,
                 body: JSON.stringify({ enabled: autostartCheck.checked })
             }).catch(e => console.error(e));
         });
@@ -98,11 +171,21 @@ window.addEventListener('load', () => {
             if (lowNoiseNotificationCheck) lowNoiseNotificationCheck.checked = data.lowNoiseNotifications !== false;
         });
 
+        if (toolStatus) {
+            fetch('/api/tools').then(r => r.json()).then(data => {
+                const ffmpegText = data.ffmpeg && data.ffmpeg.available
+                    ? 'FFmpeg: available - full quality merges enabled'
+                    : 'FFmpeg: not found - using progressive fallback';
+                toolStatus.textContent = ffmpegText;
+            }).catch(() => {
+                toolStatus.textContent = 'Tool status unavailable';
+            });
+        }
+
         if (selectDirBtn) {
             selectDirBtn.addEventListener('click', async () => {
                 try {
-                    const { ipcRenderer } = require('electron');
-                    const selectedPath = await ipcRenderer.invoke('select-folder');
+                    const selectedPath = window.unigetAPI ? await window.unigetAPI.selectFolder() : null;
                     if (selectedPath) {
                         downloadDirInput.value = selectedPath;
                         saveDirBtn.style.display = 'block';
@@ -120,7 +203,7 @@ window.addEventListener('load', () => {
             try {
                 const res = await fetch('/api/settings', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: apiJsonHeaders,
                     body: JSON.stringify({
                         downloadDir: downloadDirInput.value.trim(),
                         powerMode: powerModeSelect ? powerModeSelect.value : 'auto',
@@ -131,6 +214,7 @@ window.addEventListener('load', () => {
                 });
                 const data = await res.json();
                 if (data.success) {
+                    playSound('success');
                     saveDirBtn.textContent = '✓ Kaydedildi';
                     saveDirBtn.style.background = 'var(--success)';
                     saveDirBtn.style.color = '#fff';
@@ -142,6 +226,7 @@ window.addEventListener('load', () => {
                     }, 1500);
                 }
             } catch (e) {
+                playSound('error');
                 console.error('Settings save error:', e);
             } finally {
                 saveDirBtn.disabled = false;
@@ -159,6 +244,7 @@ window.addEventListener('load', () => {
     // Modal Controls
     if (closeModal) {
         closeModal.addEventListener('click', () => {
+            playSound('toggle');
             if (infoModal) infoModal.style.display = 'none';
         });
     }
@@ -168,32 +254,38 @@ window.addEventListener('load', () => {
     const closeDetails = document.querySelector('.close-details');
     if (closeDetails) {
         closeDetails.addEventListener('click', () => {
+            playSound('toggle');
             if (detailsModal) detailsModal.style.display = 'none';
             activeDetailsId = null;
         });
     }
     if (openSettingsBtn && settingsModal) {
         openSettingsBtn.addEventListener('click', () => {
+            playSound('open');
             settingsModal.style.display = 'flex';
         });
     }
     if (closeSettings && settingsModal) {
         closeSettings.addEventListener('click', () => {
+            playSound('toggle');
             settingsModal.style.display = 'none';
         });
     }
     if (openSetupBtn && setupModal) {
         openSetupBtn.addEventListener('click', () => {
+            playSound('open');
             setupModal.style.display = 'flex';
         });
     }
     if (closeSetup && setupModal) {
         closeSetup.addEventListener('click', () => {
+            playSound('toggle');
             setupModal.style.display = 'none';
         });
     }
     if (closeSetupBtn && setupModal) {
         closeSetupBtn.addEventListener('click', () => {
+            playSound('toggle');
             setupModal.style.display = 'none';
         });
     }
@@ -226,13 +318,13 @@ window.addEventListener('load', () => {
     // Global Actions
     if (openFolderGlobal) {
         openFolderGlobal.addEventListener('click', () => {
-            fetch('/api/open-folder', { method: 'POST' }).catch(e => console.error(e));
+            fetch('/api/open-folder', { method: 'POST', headers: apiClientHeaders }).catch(e => console.error(e));
         });
     }
 
     if (clearCompletedBtn) {
         clearCompletedBtn.addEventListener('click', () => {
-            fetch('/api/clear-completed', { method: 'POST' }).catch(e => console.error(e));
+            fetch('/api/clear-completed', { method: 'POST', headers: apiClientHeaders }).catch(e => console.error(e));
         });
     }
 
@@ -246,17 +338,21 @@ window.addEventListener('load', () => {
             const dlId = card.id.replace('dl-', '');
 
             if (btn.classList.contains('pause-btn')) {
-                fetch('/api/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: dlId, action: 'pause'}) });
+                playSound('toggle');
+                fetch('/api/action', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({id: dlId, action: 'pause'}) });
             } else if (btn.classList.contains('resume-btn')) {
-                fetch('/api/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: dlId, action: 'resume'}) });
+                playSound('start');
+                fetch('/api/action', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({id: dlId, action: 'resume'}) });
             } else if (btn.classList.contains('cancel-btn')) {
-                fetch('/api/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: dlId, action: 'cancel'}) });
+                playSound('toggle');
+                fetch('/api/action', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({id: dlId, action: 'cancel'}) });
             } else if (btn.classList.contains('details-btn')) {
+                playSound('open');
                 activeDetailsId = dlId;
                 if (detailsModal) detailsModal.style.display = 'block';
                 if (activeDownloads[dlId]) updateDetailsModal(activeDownloads[dlId]);
             } else if (btn.classList.contains('open-btn')) {
-                fetch('/api/open-folder', { method: 'POST' });
+                fetch('/api/open-folder', { method: 'POST', headers: apiClientHeaders });
             }
         });
     }
@@ -298,7 +394,7 @@ window.addEventListener('load', () => {
                 
                 const res = await fetch('/api/info', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: apiJsonHeaders,
                     body: JSON.stringify({ url }),
                     signal: controller.signal
                 });
@@ -315,7 +411,7 @@ window.addEventListener('load', () => {
                     
                     await fetch('/api/download', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: apiJsonHeaders,
                         body: JSON.stringify({ 
                             url: info.url,
                             title: info.title,
@@ -328,13 +424,16 @@ window.addEventListener('load', () => {
                             profile: 'custom'
                         })
                     });
+                    playSound('start');
                     if (urlInput) urlInput.value = '';
                 } else {
                     currentVideoInfo = { ...info, url };
                     if (modalPlaylistCheck && isPlaylistCheck) modalPlaylistCheck.checked = isPlaylistCheck.checked;
+                    playSound('open');
                     showModal(info);
                 }
             } catch (e) {
+                playSound('error');
                 const errMsg = e.name === 'AbortError' ? 'Timeout fetching video info' : e.message;
                 alert((typeof t === 'function' ? t('error') : 'Error') + ': ' + errMsg);
             } finally {
@@ -360,7 +459,7 @@ window.addEventListener('load', () => {
 
                 await fetch('/api/download', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: apiJsonHeaders,
                     body: JSON.stringify({ 
                         url: currentVideoInfo.url,
                         title: currentVideoInfo.title,
@@ -378,9 +477,11 @@ window.addEventListener('load', () => {
                 if (qualityOption) localStorage.setItem('uniget_last_quality', selectedQuality);
                 if (modalAutoOpenCheck) localStorage.setItem('uniget_auto_open', modalAutoOpenCheck.checked);
                 
+                playSound('start');
                 if (infoModal) infoModal.style.display = 'none';
                 if (urlInput) urlInput.value = '';
             } catch(e) {
+                playSound('error');
                 console.error('Download Trigger Error:', e);
             }
         });
@@ -398,9 +499,7 @@ window.addEventListener('load', () => {
             delete activeDownloads[data.id];
             const card = document.getElementById(`dl-${data.id}`);
             if (card) {
-                card.style.transition = 'opacity 0.2s, transform 0.2s';
                 card.style.opacity = '0';
-                card.style.transform = 'translateX(20px)';
                 setTimeout(() => {
                     card.remove();
                     if (downloadList && !downloadList.querySelector('.download-card')) {
@@ -418,23 +517,22 @@ window.addEventListener('load', () => {
             if (!activeDownloads[data.id]) activeDownloads[data.id] = data;
             else Object.assign(activeDownloads[data.id], data);            
             let dl = activeDownloads[data.id];
-            if (!dl.speedHistory) dl.speedHistory = [];
-            
-            let val = 0;
-            if (data.speed && typeof data.speed === 'string') {
-                val = parseFloat(data.speed) || 0;
-                if (data.speed.includes('MiB/s')) val *= 1024;
-                if (data.speed.includes('GiB/s')) val *= 1024 * 1024;
-            }
-            dl.speedHistory.push(val);
-            if (dl.speedHistory.length > 70) dl.speedHistory.shift();
 
-            // Optimised DOM updates using requestAnimationFrame
-            window.requestAnimationFrame(() => {
-                updateCard(dl);
-                if (activeDetailsId === dl.id) updateDetailsModal(dl);
-                maybeNotify(dl);
-            });
+            if (activeDetailsId === dl.id && detailsModal && detailsModal.style.display !== 'none') {
+                if (!dl.speedHistory) dl.speedHistory = [];
+                let val = 0;
+                if (data.speed && typeof data.speed === 'string') {
+                    val = parseFloat(data.speed) || 0;
+                    if (data.speed.includes('MiB/s')) val *= 1024;
+                    if (data.speed.includes('GiB/s')) val *= 1024 * 1024;
+                }
+                dl.speedHistory.push(val);
+                if (dl.speedHistory.length > 40) dl.speedHistory.shift();
+                updateDetailsModal(dl);
+            }
+
+            updateCard(dl);
+            maybeNotify(dl);
         });
     }
 
@@ -446,13 +544,14 @@ window.addEventListener('load', () => {
         const cacheKey = `${dl.id}:${status}`;
         if (lastNotifyById[cacheKey]) return;
         lastNotifyById[cacheKey] = true;
+        playSound(status === 'completed' ? 'success' : 'error');
         if ('Notification' in window) {
             const notifTitle = status === 'completed' ? `UniGet - ${typeof t === 'function' ? t('completed_status') : 'Completed'}` : `UniGet - ${typeof t === 'function' ? t('error') : 'Error'}`;
             const showNotif = () => {
                 const n = new Notification(notifTitle, { body: dl.title || 'Download task', silent: false });
                 // Click brings app to front
                 n.onclick = () => {
-                    try { require('electron').ipcRenderer.send('focus-window'); } catch(e) {}
+                    try { if (window.unigetAPI) window.unigetAPI.focusWindow(); } catch(e) {}
                     window.focus();
                     n.close();
                 };
@@ -618,7 +717,7 @@ window.addEventListener('load', () => {
         if (eta) eta.innerText = dl.eta || '--:--';
         if (prog) prog.innerText = `%${dl.progress || 0}`;
         
-        window.requestAnimationFrame(() => drawChart(dl));
+        if (detailsModal && detailsModal.style.display !== 'none') drawChart(dl);
     }
 
     let chartCtx = null;
@@ -678,22 +777,16 @@ window.addEventListener('load', () => {
             </div>
             <div class="card-actions" style="display:flex; gap: 5px;"></div>
         `;
-        window.requestAnimationFrame(() => updateCard(dl));
+        updateCard(dl);
         return card;
     }
 
     // Electron Clipboard Integration — only check on window focus, not polling
-    let electronClipboard = null;
-    try {
-        const { clipboard, ipcRenderer } = require('electron');
-        if (clipboard) electronClipboard = clipboard;
-    } catch (e) {}
-
     let lastClipboardText = '';
     function checkClipboard() {
-        if (!electronClipboard) return;
+        if (!window.unigetAPI) return;
         try {
-            const text = electronClipboard.readText().trim();
+            const text = window.unigetAPI.readClipboardText().trim();
             if (text && text !== lastClipboardText &&
                 (text.includes('youtube.com/') || text.includes('youtu.be/') ||
                  text.includes('vimeo.com/') || text.includes('twitch.tv/'))) {
@@ -715,12 +808,7 @@ window.addEventListener('load', () => {
     const donateBtn = document.getElementById('donateBtn');
     if (donateBtn) {
         donateBtn.addEventListener('click', () => {
-            const url = 'https://donate.bynogame.com/muhammeddolan';
-            try {
-                require('electron').shell.openExternal(url);
-            } catch(e) {
-                window.open(url, '_blank');
-            }
+            openExternalUrl('https://donate.bynogame.com/muhammeddolan');
         });
     }
 
@@ -732,7 +820,7 @@ window.addEventListener('load', () => {
             isAlwaysOnTop = !isAlwaysOnTop;
             pinWindowBtn.classList.toggle('pinned', isAlwaysOnTop);
             try {
-                require('electron').ipcRenderer.send('toggle-always-on-top', isAlwaysOnTop);
+                if (window.unigetAPI) window.unigetAPI.setAlwaysOnTop(isAlwaysOnTop);
             } catch(e) {}
         });
     }
@@ -752,13 +840,23 @@ window.addEventListener('load', () => {
     const installUserScriptBtn = document.getElementById('installUserScriptBtn');
     if (installUserScriptBtn) {
         installUserScriptBtn.addEventListener('click', () => {
-            const scriptUrl = 'http://localhost:3000/uniget-extension.user.js';
-            try {
-                require('electron').shell.openExternal(scriptUrl);
-            } catch(e) {
-                window.open(scriptUrl, '_blank');
-            }
+            playSound('start');
+            openExternalUrl('http://localhost:3000/uniget-extension.user.js');
             if (setupModal) setupModal.style.display = 'none';
+        });
+    }
+
+    if (firefoxAddonBtn) {
+        firefoxAddonBtn.addEventListener('click', () => {
+            playSound('open');
+            openExternalUrl(firefoxAddonUrl);
+        });
+    }
+
+    if (chromePackageBtn) {
+        chromePackageBtn.addEventListener('click', () => {
+            playSound('open');
+            openExternalUrl(chromePackageUrl);
         });
     }
 
@@ -770,6 +868,7 @@ window.addEventListener('load', () => {
     }
     if (finishOnboardingBtn) {
         finishOnboardingBtn.addEventListener('click', () => {
+            playSound('success');
             localStorage.setItem('uniget_onboarded', 'true');
             if (onboardingModal) onboardingModal.style.display = 'none';
         });
@@ -798,6 +897,7 @@ window.addEventListener('load', () => {
         
         const url = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list');
         if (url && (url.includes('http://') || url.includes('https://'))) {
+            playSound('start');
             if (urlInput) urlInput.value = url;
             if (addBtn) addBtn.click();
         }
@@ -815,5 +915,5 @@ window.addEventListener('load', () => {
                 openSetupBtn.title = "Eklenti Kurulu Değil";
             }
         }
-    }, 2000);
+    }, 10000);
 });
