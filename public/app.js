@@ -1,4 +1,4 @@
-// UniGet Pro v1.5.2 - Core Application Logic
+// UniGet Pro v1.5.3 - Core Application Logic
 window.addEventListener('load', () => {
     const socket = typeof io !== 'undefined' ? io({ transports: ['websocket'] }) : null;
     const urlInput = document.getElementById('urlInput');
@@ -351,6 +351,13 @@ window.addEventListener('load', () => {
                 activeDetailsId = dlId;
                 if (detailsModal) detailsModal.style.display = 'block';
                 if (activeDownloads[dlId]) updateDetailsModal(activeDownloads[dlId]);
+            } else if (btn.classList.contains('play-file-btn')) {
+                playSound('open');
+                fetch('/api/open-file', {
+                    method: 'POST',
+                    headers: apiJsonHeaders,
+                    body: JSON.stringify({ id: dlId })
+                }).catch(e => console.error(e));
             } else if (btn.classList.contains('open-btn')) {
                 fetch('/api/open-folder', { method: 'POST', headers: apiClientHeaders });
             }
@@ -696,6 +703,9 @@ window.addEventListener('load', () => {
             } else if (isPausedOrFailed) {
                 actionButtons += `<button class="btn-icon resume-btn" title="${typeof t === 'function' ? t('resume') : 'Resume'}"><i class="fas fa-play"></i></button>`;
                 actionButtons += `<button class="btn-icon cancel-btn" title="${typeof t === 'function' ? t('cancel') : 'Cancel'}" style="color:var(--danger)"><i class="fas fa-times"></i></button>`;
+            }
+            if (rawStatus === 'completed' && dl.filePath) {
+                actionButtons += `<button class="btn-icon play-file-btn" title="Videoyu Aç"><i class="fas fa-play-circle"></i></button>`;
             }
             actionButtons += `<button class="btn-icon details-btn" title="${typeof t === 'function' ? t('details_btn') : 'Details'}"><i class="fas fa-chart-line"></i></button>`;
             actionButtons += `<button class="btn-icon open-btn" title="${typeof t === 'function' ? t('open_folder') : 'Open'}"><i class="fas fa-folder-open"></i></button>`;

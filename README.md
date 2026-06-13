@@ -1,4 +1,4 @@
-# UniGet - Ultimate Media Manager v1.5.2
+# UniGet - Ultimate Media Manager v1.5.3
 
 UniGet (formerly YT-DLM) is a premium, modern, and powerful graphical user interface (GUI) for `yt-dlp`. Designed with a **Matte & High-Performance aesthetic**, it offers an experience that surpasses traditional download managers by combining advanced features with contemporary design.
 
@@ -26,7 +26,7 @@ UniGet (formerly YT-DLM) is a premium, modern, and powerful graphical user inter
 ## Installation (Kurulum)
 
 ### Windows (Recommended)
-Simply download the latest `UniGet-Setup-1.5.2.exe` from the [Releases](https://github.com/muhammeddolan-sketch/yt-dlp-manager/releases) page and run it. The installer will:
+Simply download the latest `UniGet-Setup-1.5.3.exe` from the [Releases](https://github.com/muhammeddolan-sketch/yt-dlp-manager/releases) page and run it. The installer will:
 1. Create a desktop shortcut.
 2. Register the app in the Start Menu.
 3. Handle all dependencies automatically upon first launch.
@@ -39,7 +39,7 @@ Simply download the latest `UniGet-Setup-1.5.2.exe` from the [Releases](https://
 5. **Package Browser Extension**: `npm run pack:extension`
 
 ## Browser Extension
-Load the `UniGet-Extension-v1.5.2.zip` (unpacked) into your Chromium-based browser (Brave, Chrome, Edge) via "Load unpacked". The extension connects to the local server to send downloads instantly.
+Load the `UniGet-Extension-v1.5.3.zip` (unpacked) into your Chromium-based browser (Brave, Chrome, Edge) via "Load unpacked". The extension connects to the local server to send downloads instantly.
 
 ## License
 This project is licensed under the **ISC License**.

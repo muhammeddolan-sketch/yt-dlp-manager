@@ -45,7 +45,7 @@ async function statusFor(url, options) {
         const health = await waitForHealth(baseUrl);
         assert.strictEqual(health.status, 'ok');
         assert.strictEqual(health.app, 'UniGet');
-        assert.strictEqual(health.version, '1.5.2');
+        assert.strictEqual(health.version, '1.5.3');
 
         const toolsRes = await fetch(`${baseUrl}/api/tools`);
         assert.strictEqual(toolsRes.status, 200);

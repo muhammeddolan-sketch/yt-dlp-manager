@@ -105,11 +105,11 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 app.get('/extension/chrome-package', (req, res) => {
-    const packagePath = path.join(__dirname, 'UniGet-Extension-v1.5.2.zip');
+    const packagePath = path.join(__dirname, 'UniGet-Extension-v1.5.3.zip');
     if (!fs.existsSync(packagePath)) {
         return res.status(404).json({ error: 'Chrome extension package not found' });
     }
-    res.download(packagePath, 'UniGet-Extension-v1.5.2.zip');
+    res.download(packagePath, 'UniGet-Extension-v1.5.3.zip');
 });
 
 let downloads = {};
@@ -241,6 +241,45 @@ function getActiveDownloadCount() {
     return count;
 }
 
+function isPathInside(parentDir, childPath) {
+    const parent = path.resolve(parentDir);
+    const child = path.resolve(childPath);
+    const relative = path.relative(parent, child);
+    return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function openFile(filePath) {
+    try {
+        if (!filePath || !fs.existsSync(filePath) || !isPathInside(DOWNLOADS_DIR, filePath)) return false;
+        if (process.platform === 'win32') {
+            spawn('cmd.exe', ['/c', 'start', '', filePath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+        } else if (process.platform === 'darwin') {
+            spawn('open', [filePath], { detached: true, stdio: 'ignore' }).unref();
+        } else {
+            spawn('xdg-open', [filePath], { detached: true, stdio: 'ignore' }).unref();
+        }
+        return true;
+    } catch(e) {
+        return false;
+    }
+}
+
+function findNewestCompletedFile() {
+    try {
+        const ignored = new Set(['.part', '.ytdl', '.temp', '.tmp']);
+        return fs.readdirSync(DOWNLOADS_DIR)
+            .map(name => path.join(DOWNLOADS_DIR, name))
+            .filter(filePath => {
+                if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) return false;
+                return !ignored.has(path.extname(filePath).toLowerCase());
+            })
+            .map(filePath => ({ filePath, mtimeMs: fs.statSync(filePath).mtimeMs }))
+            .sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.filePath || null;
+    } catch(e) {
+        return null;
+    }
+}
+
 function getAppDataDir() {
     if (process.platform === 'win32') {
         const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
@@ -270,7 +309,7 @@ function downloadFile(url, destPath) {
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
         const file = fs.createWriteStream(destPath);
 
-        const request = https.get(url, { headers: { 'User-Agent': 'UniGet Pro v1.5.2' } }, (res) => {
+        const request = https.get(url, { headers: { 'User-Agent': 'UniGet Pro v1.5.3' } }, (res) => {
             // Follow redirects
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 file.close(() => {
@@ -425,6 +464,7 @@ function emitDownloadProgress(dl, force = false) {
         payload.thumbnail = dl.thumbnail || null;
         payload.quality = dl.quality;
         payload.isPlaylist = dl.isPlaylist;
+        payload.filePath = dl.filePath || null;
     }
 
     progressEmitState[dl.id] = { ts: now, lastData: payload };
@@ -534,20 +574,19 @@ async function startDownloadTask(id) {
 
     if (ffmpegAvailable) {
         // With FFmpeg: H.264 video + AAC audio (m4a) for maximum compatibility.
-        // Fallback: any video codec + m4a audio, then any audio.
-        // FFmpeg postprocessor will re-encode audio to AAC if Opus/WebM slips through.
+        // Fallback stays MP4/progressive instead of AV1/WebM so Windows players can open it.
         if (dl.quality === '2160') {
-            formatOption = 'bestvideo[height<=2160][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio';
+            formatOption = 'bestvideo[height<=2160][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=2160][ext=mp4][vcodec^=avc]/best[height<=2160][ext=mp4]';
         } else if (dl.quality === '1440') {
-            formatOption = 'bestvideo[height<=1440][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio[ext=m4a]/bestvideo[height<=1440]+bestaudio';
+            formatOption = 'bestvideo[height<=1440][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=1440][ext=mp4][vcodec^=avc]/best[height<=1440][ext=mp4]';
         } else if (dl.quality === '1080') {
-            formatOption = 'bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio';
+            formatOption = 'bestvideo[height<=1080][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4][vcodec^=avc]/best[height<=1080][ext=mp4]';
         } else if (dl.quality === '720') {
-            formatOption = 'bestvideo[height<=720][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio';
+            formatOption = 'bestvideo[height<=720][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=720][ext=mp4][vcodec^=avc]/best[height<=720][ext=mp4]';
         } else if (dl.quality === '480') {
-            formatOption = 'bestvideo[height<=480][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio';
+            formatOption = 'bestvideo[height<=480][vcodec^=avc]+bestaudio[ext=m4a]/best[height<=480][ext=mp4][vcodec^=avc]/best[height<=480][ext=mp4]';
         } else {
-            formatOption = 'bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/bestvideo+bestaudio[ext=m4a]/bestvideo+bestaudio';
+            formatOption = 'bestvideo[vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc]/best[ext=mp4]';
         }
     } else {
         // Without FFmpeg: limited to progressive (pre-merged) streams, max 720p on YouTube.
@@ -557,13 +596,13 @@ async function startDownloadTask(id) {
         }
 
         if (dl.quality === '2160' || dl.quality === '1440' || dl.quality === '1080') {
-            formatOption = 'best[height<=720][ext=mp4]/best[height<=720]/best';
+            formatOption = 'best[height<=720][ext=mp4][vcodec^=avc]/best[height<=720][ext=mp4]';
         } else if (dl.quality === '720') {
-            formatOption = 'best[height<=720][ext=mp4]/best[height<=720]/best';
+            formatOption = 'best[height<=720][ext=mp4][vcodec^=avc]/best[height<=720][ext=mp4]';
         } else if (dl.quality === '480') {
-            formatOption = 'best[height<=480][ext=mp4]/best[height<=480]/best';
+            formatOption = 'best[height<=480][ext=mp4][vcodec^=avc]/best[height<=480][ext=mp4]';
         } else {
-            formatOption = 'best[ext=mp4]/best';
+            formatOption = 'best[ext=mp4][vcodec^=avc]/best[ext=mp4]';
         }
     }
 
@@ -586,6 +625,7 @@ async function startDownloadTask(id) {
         '--js-runtimes', 'node',
         '--progress',
         '--progress-template', '%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
+        '--print', 'after_move:filepath',
         '--retries', String(retryLimit),
         '-N', String(turboThreads)
     ];
@@ -635,6 +675,8 @@ async function startDownloadTask(id) {
     dl.process.stdout.on('data', (data) => {
         const lines = data.toString().split('\n');
         for (let line of lines) {
+            line = line.trim();
+            if (!line) continue;
             if (line.includes('|')) {
                 const parts = line.split('|');
                 if (parts.length >= 3) {
@@ -643,6 +685,8 @@ async function startDownloadTask(id) {
                     dl.eta = parts[2].trim();
                     emitDownloadProgress(dl);
                 }
+            } else if (fs.existsSync(line) && isPathInside(DOWNLOADS_DIR, line)) {
+                dl.filePath = line;
             }
         }
     });
@@ -676,6 +720,7 @@ async function startDownloadTask(id) {
         if (code === 0) {
             dl.status = 'completed';
             dl.progress = 100;
+            if (!dl.filePath) dl.filePath = findNewestCompletedFile();
             if (dl.autoOpen) {
                 openFolder(DOWNLOADS_DIR);
             }
@@ -790,6 +835,15 @@ app.post('/api/action', (req, res) => {
 
 app.post('/api/open-folder', (req, res) => {
     openFolder(DOWNLOADS_DIR);
+    res.json({ success: true });
+});
+
+app.post('/api/open-file', (req, res) => {
+    const id = typeof req.body.id === 'string' ? req.body.id : '';
+    const dl = downloads[id];
+    if (!dl || !dl.filePath) return res.status(404).json({ error: 'Dosya bulunamadi' });
+    const success = openFile(dl.filePath);
+    if (!success) return res.status(404).json({ error: 'Dosya acilamadi' });
     res.json({ success: true });
 });
 
@@ -943,7 +997,7 @@ app.get('/api/tools', async (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.5.2', app: 'UniGet' });
+    res.json({ status: 'ok', version: '1.5.3', app: 'UniGet' });
 });
 
 server.on('error', (err) => {
