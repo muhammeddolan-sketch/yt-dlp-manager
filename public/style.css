@@ -913,6 +913,21 @@ input:focus {
     font-size: 12px;
 }
 
+.tool-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.tool-row .secondary-button[hidden] {
+    display: none;
+}
+
+.tool-row .secondary-button {
+    white-space: nowrap;
+}
+
 .tool-status::before {
     content: "";
     width: 7px;

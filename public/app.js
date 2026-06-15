@@ -1,6 +1,6 @@
-// UniGet Pro v1.5.3 - Core Application Logic
+// UniGet Pro v1.5.11 - Core Application Logic
 window.addEventListener('load', () => {
-    const socket = typeof io !== 'undefined' ? io({ transports: ['websocket'] }) : null;
+    const socket = typeof io !== 'undefined' ? io({ transports: ['websocket', 'polling'] }) : null;
     const urlInput = document.getElementById('urlInput');
     const addBtn = document.getElementById('addBtn');
     const downloadList = document.getElementById('downloadList');
@@ -23,12 +23,17 @@ window.addEventListener('load', () => {
     const smartRetryCheck = document.getElementById('smartRetryCheck');
     const lowNoiseNotificationCheck = document.getElementById('lowNoiseNotificationCheck');
     const soundEffectsCheck = document.getElementById('soundEffectsCheck');
+    const useBrowserCookiesCheck = document.getElementById('useBrowserCookiesCheck');
+    const cookiesBrowserSelect = document.getElementById('cookiesBrowserSelect');
+    const checkUpdatesBtn = document.getElementById('checkUpdatesBtn');
+    const updateStatus = document.getElementById('updateStatus');
     const profileOption = document.getElementById('profileOption');
     const setupModal = document.getElementById('setupModal');
     const openSetupBtn = document.getElementById('openSetupBtn');
     const closeSetup = document.querySelector('.close-setup');
     const closeSetupBtn = document.getElementById('closeSetupBtn');
     const toolStatus = document.getElementById('toolStatus');
+    const installFfmpegBtn = document.getElementById('installFfmpegBtn');
     const firefoxAddonBtn = document.getElementById('firefoxAddonBtn');
     const chromePackageBtn = document.getElementById('chromePackageBtn');
 
@@ -43,6 +48,20 @@ window.addEventListener('load', () => {
     const chromePackageUrl = 'http://localhost:3000/extension/chrome-package';
     let audioContext = null;
     let soundEnabled = localStorage.getItem('uniget_sound_effects') !== 'false';
+
+    async function syncVisibleAppVersion() {
+        try {
+            const res = await fetch('/api/health', { headers: apiClientHeaders });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data.version) return;
+            document.querySelectorAll('.version').forEach((el) => {
+                el.textContent = `v${data.version}`;
+            });
+        } catch(e) {}
+    }
+
+    syncVisibleAppVersion();
 
     if (soundEffectsCheck) {
         soundEffectsCheck.checked = soundEnabled;
@@ -102,11 +121,56 @@ window.addEventListener('load', () => {
         }
     }
 
+    async function copyText(text) {
+        const value = String(text || '').trim();
+        if (!value) return false;
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(value);
+                return true;
+            }
+        } catch(e) {}
+        try {
+            const area = document.createElement('textarea');
+            area.value = value;
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.select();
+            const ok = document.execCommand('copy');
+            area.remove();
+            return ok;
+        } catch(e) {
+            return false;
+        }
+    }
+
     document.addEventListener('pointerdown', (e) => {
         if (e.target.closest('button, .nav-item, select, input[type="checkbox"]')) {
             playSound('tap');
         }
     }, { passive: true });
+
+    function mergeDownload(dl) {
+        if (!dl || !dl.id) return;
+        if (!activeDownloads[dl.id]) activeDownloads[dl.id] = dl;
+        else Object.assign(activeDownloads[dl.id], dl);
+        if (downloadMatchesCurrentView(activeDownloads[dl.id])) {
+            updateCard(activeDownloads[dl.id]);
+        } else {
+            document.getElementById(`dl-${dl.id}`)?.remove();
+            if (downloadList && !downloadList.querySelector('.download-card')) renderList();
+        }
+    }
+
+    async function refreshDownloads() {
+        try {
+            const res = await fetch('/api/downloads', { headers: apiClientHeaders });
+            if (!res.ok) return;
+            activeDownloads = await res.json();
+            renderList();
+        } catch(e) {}
+    }
 
     // Theme Initialization
     const savedTheme = localStorage.getItem('uniget_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -169,18 +233,11 @@ window.addEventListener('load', () => {
             if (rateLimitInput && typeof data.rateLimitKbps !== 'undefined') rateLimitInput.value = data.rateLimitKbps;
             if (smartRetryCheck) smartRetryCheck.checked = data.smartRetry !== false;
             if (lowNoiseNotificationCheck) lowNoiseNotificationCheck.checked = data.lowNoiseNotifications !== false;
+            if (useBrowserCookiesCheck) useBrowserCookiesCheck.checked = data.useBrowserCookies === true;
+            if (cookiesBrowserSelect && data.cookiesBrowser) cookiesBrowserSelect.value = data.cookiesBrowser;
         });
 
-        if (toolStatus) {
-            fetch('/api/tools').then(r => r.json()).then(data => {
-                const ffmpegText = data.ffmpeg && data.ffmpeg.available
-                    ? 'FFmpeg: available - full quality merges enabled'
-                    : 'FFmpeg: not found - using progressive fallback';
-                toolStatus.textContent = ffmpegText;
-            }).catch(() => {
-                toolStatus.textContent = 'Tool status unavailable';
-            });
-        }
+        refreshToolStatus();
 
         if (selectDirBtn) {
             selectDirBtn.addEventListener('click', async () => {
@@ -209,7 +266,9 @@ window.addEventListener('load', () => {
                         powerMode: powerModeSelect ? powerModeSelect.value : 'auto',
                         rateLimitKbps: rateLimitInput ? Number(rateLimitInput.value || 0) : 0,
                         smartRetry: smartRetryCheck ? smartRetryCheck.checked : true,
-                        lowNoiseNotifications: lowNoiseNotificationCheck ? lowNoiseNotificationCheck.checked : true
+                        lowNoiseNotifications: lowNoiseNotificationCheck ? lowNoiseNotificationCheck.checked : true,
+                        useBrowserCookies: useBrowserCookiesCheck ? useBrowserCookiesCheck.checked : false,
+                        cookiesBrowser: cookiesBrowserSelect ? cookiesBrowserSelect.value : 'chrome'
                     })
                 });
                 const data = await res.json();
@@ -233,12 +292,90 @@ window.addEventListener('load', () => {
             }
         });
 
-        [powerModeSelect, rateLimitInput, smartRetryCheck, lowNoiseNotificationCheck].forEach((el) => {
+        [powerModeSelect, rateLimitInput, smartRetryCheck, lowNoiseNotificationCheck, useBrowserCookiesCheck, cookiesBrowserSelect].forEach((el) => {
             if (!el) return;
             el.addEventListener('change', () => {
                 saveDirBtn.style.display = 'block';
             });
         });
+    }
+
+    async function refreshToolStatus() {
+        if (!toolStatus) return;
+        try {
+            const res = await fetch('/api/tools');
+            const data = await res.json();
+            const ffmpegReady = !!(data.ffmpeg && data.ffmpeg.available);
+            toolStatus.textContent = ffmpegReady
+                ? 'FFmpeg: hazir - yuksek kalite birlestirme acik'
+                : 'FFmpeg: yok - tek dosya progressive mod kullaniliyor';
+            if (installFfmpegBtn) installFfmpegBtn.hidden = ffmpegReady;
+        } catch {
+            toolStatus.textContent = 'Arac durumu okunamadi';
+            if (installFfmpegBtn) installFfmpegBtn.hidden = true;
+        }
+    }
+
+    if (installFfmpegBtn) {
+        installFfmpegBtn.addEventListener('click', async () => {
+            installFfmpegBtn.disabled = true;
+            if (toolStatus) toolStatus.textContent = 'FFmpeg indiriliyor ve kuruluyor...';
+            try {
+                const res = await fetch('/api/tools/install-ffmpeg', {
+                    method: 'POST',
+                    headers: apiClientHeaders
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.error) throw new Error(data.error || 'FFmpeg kurulumu basarisiz');
+                playSound('success');
+                await refreshToolStatus();
+            } catch (e) {
+                playSound('error');
+                if (toolStatus) toolStatus.textContent = `FFmpeg kurulumu basarisiz: ${e.message}`;
+            } finally {
+                installFfmpegBtn.disabled = false;
+            }
+        });
+    }
+
+    if (checkUpdatesBtn) {
+        checkUpdatesBtn.addEventListener('click', async () => {
+            checkUpdatesBtn.disabled = true;
+            if (updateStatus) updateStatus.textContent = 'Guncelleme kontrol ediliyor...';
+            try {
+                const res = await fetch('/api/update-check', { headers: apiClientHeaders });
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Guncelleme kontrolu basarisiz');
+                if (data.hasUpdate) {
+                    if (updateStatus) updateStatus.textContent = `Yeni surum var: v${data.latestVersion}`;
+                    openExternalUrl(data.url);
+                } else if (updateStatus) {
+                    updateStatus.textContent = `Guncel surumdesin: v${data.currentVersion}`;
+                }
+                playSound('success');
+            } catch (e) {
+                playSound('error');
+                if (updateStatus) updateStatus.textContent = `Guncelleme kontrolu basarisiz: ${e.message}`;
+            } finally {
+                checkUpdatesBtn.disabled = false;
+            }
+        });
+    }
+
+    async function validateMediaBeforeDownload(url) {
+        const res = await fetch('/api/validate-media', {
+            method: 'POST',
+            headers: apiJsonHeaders,
+            body: JSON.stringify({ url })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.error) {
+            throw new Error(data.error || 'Medya dogrulanamadi');
+        }
+        if (data.downloadable === false || data.mediaType === 'image') {
+            throw new Error('Bu baglanti video/ses gibi gorunmuyor. Foto veya desteklenmeyen medya olabilir.');
+        }
+        return data;
     }
 
     // Modal Controls
@@ -330,7 +467,7 @@ window.addEventListener('load', () => {
 
     // Event Delegation for action buttons to avoid performance issues
     if (downloadList) {
-        downloadList.addEventListener('click', (e) => {
+        downloadList.addEventListener('click', async (e) => {
             const btn = e.target.closest('.btn-icon');
             if (!btn) return;
             const card = e.target.closest('.download-card');
@@ -360,6 +497,10 @@ window.addEventListener('load', () => {
                 }).catch(e => console.error(e));
             } else if (btn.classList.contains('open-btn')) {
                 fetch('/api/open-folder', { method: 'POST', headers: apiClientHeaders });
+            } else if (btn.classList.contains('copy-error-btn')) {
+                const dl = activeDownloads[dlId];
+                const ok = await copyText(dl ? `${dl.title || 'Download'}\n${dl.url || ''}\n${dl.errorDetail || dl.status || ''}` : '');
+                playSound(ok ? 'success' : 'error');
             }
         });
     }
@@ -409,6 +550,9 @@ window.addEventListener('load', () => {
                 
                 const info = await res.json();
                 if (info.error) throw new Error(info.error);
+                if (info.downloadable === false || info.mediaType === 'image') {
+                    throw new Error('Bu baglanti video/ses gibi gorunmuyor. Foto veya desteklenmeyen medya olabilir.');
+                }
                 
                 const isQuickMode = localStorage.getItem('uniget_quick_mode') === 'true';
                 if (isQuickMode) {
@@ -416,7 +560,7 @@ window.addEventListener('load', () => {
                     const battery = navigator.getBattery ? await navigator.getBattery().catch(() => null) : null;
                     const isOnBattery = battery ? !battery.charging : false;
                     
-                    await fetch('/api/download', {
+                    const downloadRes = await fetch('/api/download', {
                         method: 'POST',
                         headers: apiJsonHeaders,
                         body: JSON.stringify({ 
@@ -431,6 +575,9 @@ window.addEventListener('load', () => {
                             profile: 'custom'
                         })
                     });
+                    const downloadData = await downloadRes.json();
+                    if (!downloadRes.ok || downloadData.error) throw new Error(downloadData.error || 'Download could not be started');
+                    mergeDownload(downloadData.download || { ...downloadData, title: info.title, url: info.url });
                     playSound('start');
                     if (urlInput) urlInput.value = '';
                 } else {
@@ -464,7 +611,7 @@ window.addEventListener('load', () => {
                 if (selectedProfile === 'archive_1080') selectedQuality = '1080';
                 if (selectedProfile === 'podcast_audio') selectedQuality = 'audio';
 
-                await fetch('/api/download', {
+                const downloadRes = await fetch('/api/download', {
                     method: 'POST',
                     headers: apiJsonHeaders,
                     body: JSON.stringify({ 
@@ -480,6 +627,9 @@ window.addEventListener('load', () => {
                         profile: selectedProfile
                     })
                 });
+                const downloadData = await downloadRes.json();
+                if (!downloadRes.ok || downloadData.error) throw new Error(downloadData.error || 'Download could not be started');
+                mergeDownload(downloadData.download || { ...downloadData, title: currentVideoInfo.title, url: currentVideoInfo.url });
                 
                 if (qualityOption) localStorage.setItem('uniget_last_quality', selectedQuality);
                 if (modalAutoOpenCheck) localStorage.setItem('uniget_auto_open', modalAutoOpenCheck.checked);
@@ -497,6 +647,8 @@ window.addEventListener('load', () => {
     // Socket.IO Events
     if (socket) {
         console.log('Socket initialized.');
+        socket.on('connect', refreshDownloads);
+        socket.on('connect_error', refreshDownloads);
         socket.on('initial-state', (data) => {
             activeDownloads = data;
             renderList();
@@ -521,8 +673,7 @@ window.addEventListener('load', () => {
         });
 
         socket.on('progress', (data) => {
-            if (!activeDownloads[data.id]) activeDownloads[data.id] = data;
-            else Object.assign(activeDownloads[data.id], data);            
+            mergeDownload(data);
             let dl = activeDownloads[data.id];
 
             if (activeDetailsId === dl.id && detailsModal && detailsModal.style.display !== 'none') {
@@ -537,11 +688,12 @@ window.addEventListener('load', () => {
                 if (dl.speedHistory.length > 40) dl.speedHistory.shift();
                 updateDetailsModal(dl);
             }
-
-            updateCard(dl);
             maybeNotify(dl);
         });
     }
+
+    refreshDownloads();
+    setInterval(refreshDownloads, 5000);
 
     function maybeNotify(dl) {
         const notificationsEnabled = lowNoiseNotificationCheck ? lowNoiseNotificationCheck.checked : true;
@@ -606,15 +758,7 @@ window.addEventListener('load', () => {
         if (!downloadList) return;
         let dlArray = Object.values(activeDownloads).reverse();
         
-        dlArray = dlArray.filter(dl => {
-            const status = String(dl.status || '');
-            if (currentView === 'all') return true;
-            if (currentView === 'completed') return status === 'completed';
-            if (currentView === 'downloading') {
-                return status !== 'completed' && !status.startsWith('error:') && status !== 'failed';
-            }
-            return true;
-        });
+        dlArray = dlArray.filter(downloadMatchesCurrentView);
 
         if (dlArray.length === 0) {
             downloadList.innerHTML = `
@@ -632,6 +776,16 @@ window.addEventListener('load', () => {
             fragment.appendChild(createCard(dl));
         });
         downloadList.appendChild(fragment);
+    }
+
+    function downloadMatchesCurrentView(dl) {
+        const status = String(dl?.status || '');
+        if (currentView === 'all') return true;
+        if (currentView === 'completed') return status === 'completed';
+        if (currentView === 'downloading') {
+            return status !== 'completed' && !status.startsWith('error:') && status !== 'failed';
+        }
+        return true;
     }
 
     function updateCard(dl) {
@@ -657,9 +811,9 @@ window.addEventListener('load', () => {
         } else if (rawStatus === 'paused') {
             statusText = typeof t === 'function' ? t('paused_status') : 'Paused';
         } else if (rawStatus === 'failed') {
-            statusText = typeof t === 'function' ? t('error') : 'Error';
+            statusText = dl.errorDetail || (typeof t === 'function' ? t('error') : 'Error');
         } else if (rawStatus.startsWith('error:')) {
-            statusText = rawStatus.replace('error:', '').substring(0, 80);
+            statusText = (dl.errorDetail || rawStatus.replace('error:', '')).substring(0, 120);
         } else {
             statusText = rawStatus.substring(0, 80);
         }
@@ -702,6 +856,7 @@ window.addEventListener('load', () => {
                 actionButtons += `<button class="btn-icon cancel-btn" title="${typeof t === 'function' ? t('cancel') : 'Cancel'}" style="color:var(--danger)"><i class="fas fa-times"></i></button>`;
             } else if (isPausedOrFailed) {
                 actionButtons += `<button class="btn-icon resume-btn" title="${typeof t === 'function' ? t('resume') : 'Resume'}"><i class="fas fa-play"></i></button>`;
+                actionButtons += `<button class="btn-icon copy-error-btn" title="Hata detayini kopyala"><i class="fas fa-copy"></i></button>`;
                 actionButtons += `<button class="btn-icon cancel-btn" title="${typeof t === 'function' ? t('cancel') : 'Cancel'}" style="color:var(--danger)"><i class="fas fa-times"></i></button>`;
             }
             if (rawStatus === 'completed' && dl.filePath) {

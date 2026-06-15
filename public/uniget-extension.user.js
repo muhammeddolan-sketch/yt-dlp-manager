@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UniGet Web Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.5.3
+// @version      1.5.11
 // @description  Adds a clean floating download button to all videos
 // @author       Antigravity
 // @match        *://*/*
@@ -236,9 +236,9 @@
                                                         btnStart.innerText = 'İndir';
                                                         btnStart.disabled = false;
                                                     }, 4000);
-                                                } else if (dlState.status.toLowerCase().includes('hata') || dlState.status === 'failed') {
+                                                } else if (dlState.status.toLowerCase().includes('hata') || dlState.status.startsWith('error:') || dlState.status === 'failed') {
                                                     clearInterval(pollTimer);
-                                                    progText.innerText = 'Hata oluştu!';
+                                                    progText.innerText = (dlState.errorDetail || dlState.status.replace('error:', '') || 'Hata olustu!').slice(0, 120);
                                                     progBar.style.background = '#f87171';
                                                 } else {
                                                     progText.innerText = dlState.speed ? `${dlState.speed} - ${dlState.eta || '--'}` : 'İndiriliyor...';
