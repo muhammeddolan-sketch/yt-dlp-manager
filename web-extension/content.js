@@ -1,5 +1,5 @@
 (function() {
-    // UniGet Pro v1.5.11 Content Script
+    // UniGet Pro v1.5.12 Content Script
 
     const messages = {
         tr: {
@@ -30,7 +30,7 @@
     const t = (key) => (messages[userLang] || messages.en)[key];
     const myBrowser = typeof browser !== 'undefined' ? browser : chrome;
     const API_BASE = 'http://127.0.0.1:3000';
-    const manifestVersion = myBrowser.runtime.getManifest ? myBrowser.runtime.getManifest().version : '1.5.11';
+    const manifestVersion = myBrowser.runtime.getManifest ? myBrowser.runtime.getManifest().version : '1.5.12';
 
     let currentVideoInfo = null;
     let pollTimer = null;

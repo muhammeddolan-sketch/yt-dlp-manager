@@ -1,6 +1,6 @@
 {
   "name": "yt-dlp-manager",
-  "version": "1.5.11",
+  "version": "1.5.12",
   "description": "Premium YT-DLP GUI Manager",
   "main": "main.js",
   "scripts": {
@@ -11,8 +11,8 @@
     "make": "electron-forge make",
     "package": "electron-forge package",
     "test": "node --check server.js && node --check main.js && node --check preload.js && node --check public/app.js && node --check public/uniget-extension.user.js && node --check web-extension/background.js && node --check web-extension/content.js && node tests/api-smoke.test.js",
-    "pack:extension": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path 'UniGet-Extension-v1.5.11.zip') { Remove-Item 'UniGet-Extension-v1.5.11.zip' -Force }; Compress-Archive -Path 'web-extension/*' -DestinationPath 'UniGet-Extension-v1.5.11.zip' -Force\"",
-    "pack:extension:firefox": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$tmp = Join-Path '.tmp' 'firefox-extension'; if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }; New-Item -ItemType Directory -Path $tmp | Out-Null; Copy-Item 'web-extension\\*' $tmp -Recurse; $manifestPath = Join-Path $tmp 'manifest.json'; $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json; $manifest.background | Add-Member -NotePropertyName scripts -NotePropertyValue @('background.js') -Force; $manifest | ConvertTo-Json -Depth 20 | Set-Content $manifestPath -Encoding UTF8; if (Test-Path 'UniGet-Firefox-Extension-v1.5.11.zip') { Remove-Item 'UniGet-Firefox-Extension-v1.5.11.zip' -Force }; Compress-Archive -Path (Join-Path $tmp '*') -DestinationPath 'UniGet-Firefox-Extension-v1.5.11.zip' -Force\""
+    "pack:extension": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path 'UniGet-Extension-v1.5.12.zip') { Remove-Item 'UniGet-Extension-v1.5.12.zip' -Force }; Compress-Archive -Path 'web-extension/*' -DestinationPath 'UniGet-Extension-v1.5.12.zip' -Force\"",
+    "pack:extension:firefox": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$tmp = Join-Path '.tmp' 'firefox-extension'; if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }; New-Item -ItemType Directory -Path $tmp | Out-Null; Copy-Item 'web-extension\\*' $tmp -Recurse; $manifestPath = Join-Path $tmp 'manifest.json'; $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json; $manifest.background | Add-Member -NotePropertyName scripts -NotePropertyValue @('background.js') -Force; $manifest | ConvertTo-Json -Depth 20 | Set-Content $manifestPath -Encoding UTF8; if (Test-Path 'UniGet-Firefox-Extension-v1.5.12.zip') { Remove-Item 'UniGet-Firefox-Extension-v1.5.12.zip' -Force }; Compress-Archive -Path (Join-Path $tmp '*') -DestinationPath 'UniGet-Firefox-Extension-v1.5.12.zip' -Force\""
   },
   "build": {
     "appId": "com.uniget.app",

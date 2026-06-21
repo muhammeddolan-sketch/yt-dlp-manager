@@ -1,4 +1,4 @@
-// UniGet Pro v1.5.11 - Core Application Logic
+// UniGet Pro v1.5.12 - Core Application Logic
 window.addEventListener('load', () => {
     const socket = typeof io !== 'undefined' ? io({ transports: ['websocket', 'polling'] }) : null;
     const urlInput = document.getElementById('urlInput');

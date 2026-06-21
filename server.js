@@ -113,11 +113,11 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 app.get('/extension/chrome-package', (req, res) => {
-    const packagePath = path.join(__dirname, 'UniGet-Extension-v1.5.11.zip');
+    const packagePath = path.join(__dirname, 'UniGet-Extension-v1.5.12.zip');
     if (!fs.existsSync(packagePath)) {
         return res.status(404).json({ error: 'Chrome extension package not found' });
     }
-    res.download(packagePath, 'UniGet-Extension-v1.5.11.zip');
+    res.download(packagePath, 'UniGet-Extension-v1.5.12.zip');
 });
 
 let downloads = {};
@@ -171,6 +171,7 @@ function classifyMediaInfo(info) {
     for (const item of stack) {
         const ext = String(item.ext || '').toLowerCase();
         if (imageExts.has(ext)) hasImage = true;
+        if ((item.duration || item.duration_string || item._type === 'video') && !imageExts.has(ext)) hasVideo = true;
         if (Array.isArray(item.formats)) {
             for (const f of item.formats) {
                 const vcodec = String(f.vcodec || '').toLowerCase();
@@ -189,6 +190,38 @@ function classifyMediaInfo(info) {
     if (hasAudio) return { mediaType: 'audio', downloadable: true };
     if (hasImage) return { mediaType: 'image', downloadable: false };
     return { mediaType: 'unknown', downloadable: false };
+}
+
+function getUsefulYtDlpError(stderr, fallback = 'yt-dlp failed') {
+    const lines = String(stderr || '')
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+    const useful = lines.filter(line => !/^WARNING:/i.test(line));
+    return (useful.join('\n') || lines.find(line => /^ERROR:/i.test(line)) || fallback).substring(0, 300);
+}
+
+function parseYtDlpJson(output) {
+    const text = String(output || '').trim();
+    if (!text) return null;
+    try {
+        return JSON.parse(text);
+    } catch {
+        return null;
+    }
+}
+
+function buildInfoResponse(url, info) {
+    const media = classifyMediaInfo(info);
+    return {
+        url,
+        title: info.title,
+        thumbnail: info.thumbnail,
+        duration: info.duration_string,
+        uploader: info.uploader,
+        mediaType: media.mediaType,
+        downloadable: media.downloadable
+    };
 }
 
 function normalizeTime(value) {
@@ -535,7 +568,7 @@ function downloadFile(url, destPath, timeoutMs = 60000) {
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
         const file = fs.createWriteStream(destPath);
 
-        const request = https.get(url, { headers: { 'User-Agent': 'UniGet Pro v1.5.11' } }, (res) => {
+        const request = https.get(url, { headers: { 'User-Agent': 'UniGet Pro v1.5.12' } }, (res) => {
             // Follow redirects
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 file.close(() => {
@@ -817,26 +850,13 @@ app.post('/api/info', async (req, res) => {
 
         proc.on('close', (code) => {
             clearTimeout(timeout);
-            if (code === 0) {
-                try {
-                    const info = JSON.parse(output);
-                    const media = classifyMediaInfo(info);
-                    const result = {
-                        url,
-                        title: info.title,
-                        thumbnail: info.thumbnail,
-                        duration: info.duration_string,
-                        uploader: info.uploader,
-                        mediaType: media.mediaType,
-                        downloadable: media.downloadable
-                    };
-                    resolve(result);
-                } catch (e) {
-                    reject(new Error('Failed to parse info'));
-                }
+            const info = parseYtDlpJson(output);
+            if (info) {
+                resolve(buildInfoResponse(url, info));
+            } else if (code === 0) {
+                reject(new Error('Failed to parse info'));
             } else {
-                const message = stderr.trim() || 'yt-dlp failed';
-                reject(new Error(message.substring(0, 300)));
+                reject(new Error(getUsefulYtDlpError(stderr)));
             }
             // Clear from cache after a short delay (e.g. 5s) to allow new requests if needed
             setTimeout(() => infoCache.delete(url), 5000);
@@ -873,30 +893,40 @@ app.post('/api/validate-media', async (req, res) => {
             if (stderr.length < 4096) stderr += data.toString();
         });
 
+        let timedOut = false;
         const timeout = setTimeout(() => {
+            timedOut = true;
             try { proc.kill('SIGTERM'); } catch {}
         }, 20000);
 
         proc.on('close', code => {
             clearTimeout(timeout);
+            const info = parseYtDlpJson(output);
+            if (info) {
+                const media = classifyMediaInfo(info);
+                if (media.downloadable || code === 0) {
+                    return res.json({
+                        ...media,
+                        title: info.title || null,
+                        thumbnail: info.thumbnail || null
+                    });
+                }
+            }
+            if (timedOut) {
+                return res.status(422).json({
+                    downloadable: false,
+                    mediaType: 'unknown',
+                    error: 'Media verification timed out'
+                });
+            }
             if (code !== 0) {
                 return res.status(422).json({
                     downloadable: false,
                     mediaType: 'unknown',
-                    error: (stderr.trim() || 'Media could not be verified').substring(0, 300)
+                    error: getUsefulYtDlpError(stderr, 'Media could not be verified')
                 });
             }
-            try {
-                const info = JSON.parse(output);
-                const media = classifyMediaInfo(info);
-                res.json({
-                    ...media,
-                    title: info.title || null,
-                    thumbnail: info.thumbnail || null
-                });
-            } catch (e) {
-                res.status(422).json({ downloadable: false, mediaType: 'unknown', error: 'Media info could not be parsed' });
-            }
+            res.status(422).json({ downloadable: false, mediaType: 'unknown', error: 'Media info could not be parsed' });
         });
     } catch (e) {
         res.status(500).json({ downloadable: false, mediaType: 'unknown', error: e.message || 'Media validation failed' });
@@ -1371,7 +1401,7 @@ app.post('/api/tools/install-ffmpeg', async (req, res) => {
 });
 
 app.get('/api/update-check', (req, res) => {
-    const currentVersion = '1.5.11';
+    const currentVersion = '1.5.12';
     const options = {
         hostname: 'api.github.com',
         path: '/repos/muhammeddolan-sketch/yt-dlp-manager/releases/latest',
@@ -1412,7 +1442,7 @@ app.get('/api/update-check', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.5.11', app: 'UniGet' });
+    res.json({ status: 'ok', version: '1.5.12', app: 'UniGet' });
 });
 
 server.on('error', (err) => {
