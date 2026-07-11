@@ -1,6 +1,6 @@
 {
   "name": "yt-dlp-manager",
-  "version": "1.5.13",
+  "version": "1.6.0",
   "description": "Premium YT-DLP GUI Manager",
   "main": "main.js",
   "scripts": {
@@ -8,8 +8,6 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win nsis",
-    "make": "electron-forge make",
-    "package": "electron-forge package",
     "test": "node --check server.js && node --check main.js && node --check preload.js && node --check public/app.js && node --check public/uniget-extension.user.js && node --check web-extension/background.js && node --check web-extension/content.js && node tests/api-smoke.test.js",
     "pack:extension": "node scripts/pack-extensions.js chrome",
     "pack:extension:firefox": "node scripts/pack-extensions.js firefox",
@@ -70,10 +68,6 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "@electron-forge/cli": "^7.11.1",
-    "@electron-forge/maker-squirrel": "^7.11.1",
-    "@electron-forge/maker-zip": "^7.11.1",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
     "electron": "^41.0.2",
     "electron-builder": "^26.8.1"
   }

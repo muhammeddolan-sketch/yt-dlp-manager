@@ -32,7 +32,7 @@
     // Firefox's `browser` namespace rejects callbacks (promise-only API).
     const myBrowser = typeof chrome !== 'undefined' && chrome.runtime ? chrome : browser;
     const API_BASE = 'http://127.0.0.1:3000';
-    const manifestVersion = myBrowser.runtime.getManifest ? myBrowser.runtime.getManifest().version : '1.5.13';
+    const manifestVersion = myBrowser.runtime.getManifest ? myBrowser.runtime.getManifest().version : '1.6.0';
 
     let currentVideoInfo = null;
     let pollTimer = null;

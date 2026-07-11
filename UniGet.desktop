@@ -1,8 +1,0 @@
-[Desktop Entry]
-Name=UniGet
-Comment=Modern YouTube Downloader
-Exec=/home/slawn/Projeler/yt-dlp-manager/start-uniget.sh
-Icon=/home/slawn/Projeler/yt-dlp-manager/public/icon.png
-Terminal=false
-Type=Application
-Categories=Network;WebBrowser;

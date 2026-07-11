@@ -1279,7 +1279,6 @@ app.post('/api/autostart', (req, res) => {
     const { enabled } = req.body;
     const autostartDir = path.join(os.homedir(), '.config', 'autostart');
     const desktopFile = path.join(autostartDir, 'uniget.desktop');
-    const sourceFile = path.join(__dirname, 'YT-DLM.desktop');
 
     try {
         if (enabled) {
