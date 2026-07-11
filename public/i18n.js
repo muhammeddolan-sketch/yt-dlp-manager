@@ -53,7 +53,8 @@ const translations = {
         start_time: "Başlangıç Zamanı",
         end_time: "Bitiş Zamanı",
         filter_placeholder: "İndirmelerde ara...",
-        copy_link: "Bağlantıyı kopyala"
+        copy_link: "Bağlantıyı kopyala",
+        download_folder: "İndirme klasörü"
     },
     en: {
         app_title: "UniGet",
@@ -109,7 +110,8 @@ const translations = {
         start_time: "Start Time",
         end_time: "End Time",
         filter_placeholder: "Search downloads...",
-        copy_link: "Copy link"
+        copy_link: "Copy link",
+        download_folder: "Download folder"
     },
     de: {
         app_title: "UniGet",
@@ -165,7 +167,8 @@ const translations = {
         start_time: "Startzeit",
         end_time: "Endzeit",
         filter_placeholder: "Downloads durchsuchen...",
-        copy_link: "Link kopieren"
+        copy_link: "Link kopieren",
+        download_folder: "Download-Ordner"
     },
     fr: {
         app_title: "UniGet",
@@ -221,7 +224,8 @@ const translations = {
         start_time: "Heure de début",
         end_time: "Heure de fin",
         filter_placeholder: "Rechercher des téléchargements...",
-        copy_link: "Copier le lien"
+        copy_link: "Copier le lien",
+        download_folder: "Dossier de téléchargement"
     },
     es: {
         app_title: "UniGet",
@@ -277,7 +281,8 @@ const translations = {
         start_time: "Hora de inicio",
         end_time: "Hora de fin",
         filter_placeholder: "Buscar descargas...",
-        copy_link: "Copiar enlace"
+        copy_link: "Copiar enlace",
+        download_folder: "Carpeta de descargas"
     }
 };
 

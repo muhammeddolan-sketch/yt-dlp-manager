@@ -947,10 +947,10 @@ window.addEventListener('load', () => {
         
         const history = dl.speedHistory || [];
         if (history.length < 2) return;
-        
-        const maxSpeed = Math.max(...history, 100); 
+
+        const maxSpeed = Math.max(...history, 100);
         chartCtx.beginPath();
-        chartCtx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-main').trim() || '#18181b';
+        chartCtx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#7057ee';
         chartCtx.lineWidth = 2;
         chartCtx.lineJoin = 'round';
         const step = w / 70; 

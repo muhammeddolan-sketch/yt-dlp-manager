@@ -143,7 +143,7 @@ function createMainWindow() {
         icon: path.join(__dirname, 'public', 'icon.png'),
         show: false,
         autoHideMenuBar: true,
-        backgroundColor: '#09090b',
+        backgroundColor: '#120f1d',
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
