@@ -1,4 +1,7 @@
-const myBrowser = typeof browser !== 'undefined' ? browser : chrome;
+// Prefer the chrome namespace: it supports callback-style APIs in both
+// Chrome and Firefox, whereas Firefox's `browser` namespace is promise-only
+// and throws when a callback is passed (breaking sendMessage below).
+const myBrowser = typeof chrome !== 'undefined' && chrome.runtime ? chrome : browser;
 const responseCache = new Map();
 const FETCH_TIMEOUT_MS = 7000;
 

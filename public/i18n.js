@@ -51,7 +51,9 @@ const translations = {
         settings: "Ayarlar",
         got_it: "Anladım",
         start_time: "Başlangıç Zamanı",
-        end_time: "Bitiş Zamanı"
+        end_time: "Bitiş Zamanı",
+        filter_placeholder: "İndirmelerde ara...",
+        copy_link: "Bağlantıyı kopyala"
     },
     en: {
         app_title: "UniGet",
@@ -105,7 +107,9 @@ const translations = {
         settings: "Settings",
         got_it: "Got it",
         start_time: "Start Time",
-        end_time: "End Time"
+        end_time: "End Time",
+        filter_placeholder: "Search downloads...",
+        copy_link: "Copy link"
     },
     de: {
         app_title: "UniGet",
@@ -152,7 +156,16 @@ const translations = {
         autostart: "Beim Systemstart starten",
         tray_show_hide: "Anzeigen / Ausblenden",
         tray_open: "Downloads öffnen",
-        tray_exit: "Beenden"
+        tray_exit: "Beenden",
+        setup_guide: "Erweiterung einrichten",
+        setup_title: "Browser-Erweiterung installieren",
+        setup_desc: "Für Ein-Klick-Downloads von YouTube und anderen Seiten wird die Browser-Erweiterung empfohlen.",
+        settings: "Einstellungen",
+        got_it: "Verstanden",
+        start_time: "Startzeit",
+        end_time: "Endzeit",
+        filter_placeholder: "Downloads durchsuchen...",
+        copy_link: "Link kopieren"
     },
     fr: {
         app_title: "UniGet",
@@ -199,7 +212,16 @@ const translations = {
         autostart: "Lancer au démarrage",
         tray_show_hide: "Afficher / Masquer",
         tray_open: "Ouvrir les téléchargements",
-        tray_exit: "Quitter"
+        tray_exit: "Quitter",
+        setup_guide: "Installer l'extension",
+        setup_title: "Installer l'extension navigateur",
+        setup_desc: "Pour télécharger en un clic depuis YouTube et d'autres sites, installez l'extension navigateur.",
+        settings: "Paramètres",
+        got_it: "Compris",
+        start_time: "Heure de début",
+        end_time: "Heure de fin",
+        filter_placeholder: "Rechercher des téléchargements...",
+        copy_link: "Copier le lien"
     },
     es: {
         app_title: "UniGet",
@@ -246,7 +268,16 @@ const translations = {
         autostart: "Iniciar al arrancar",
         tray_show_hide: "Mostrar / Ocultar",
         tray_open: "Abrir descargas",
-        tray_exit: "Salir"
+        tray_exit: "Salir",
+        setup_guide: "Instalar extensión",
+        setup_title: "Instalar extensión del navegador",
+        setup_desc: "Para descargas con un clic desde YouTube y otros sitios, instala la extensión del navegador.",
+        settings: "Ajustes",
+        got_it: "Entendido",
+        start_time: "Hora de inicio",
+        end_time: "Hora de fin",
+        filter_placeholder: "Buscar descargas...",
+        copy_link: "Copiar enlace"
     }
 };
 
@@ -258,8 +289,10 @@ if (typeof navigator !== 'undefined' && navigator.language) {
     }
 }
 let currentLang = localStorage.getItem('uniget_lang') || defaultLang;
+if (!translations[currentLang]) currentLang = defaultLang;
 function t(key) {
-    return translations[currentLang][key] || key;
+    const active = translations[currentLang] || translations.en;
+    return active[key] || translations.en[key] || key;
 }
 
 function setLanguage(lang) {

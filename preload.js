@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('unigetAPI', {
     focusWindow: () => ipcRenderer.send('focus-window'),
     openMain: () => ipcRenderer.send('open-main'),
     setAlwaysOnTop: (enabled) => ipcRenderer.send('toggle-always-on-top', !!enabled),
+    getAutostart: () => ipcRenderer.invoke('get-autostart'),
+    setAutostart: (enabled) => ipcRenderer.invoke('set-autostart', !!enabled),
     readClipboardText: () => clipboard.readText(),
     openExternal: (url) => {
         try {

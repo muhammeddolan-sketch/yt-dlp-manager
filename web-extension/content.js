@@ -1,5 +1,5 @@
 (function() {
-    // UniGet Pro v1.5.12 Content Script
+    // UniGet Pro Content Script
 
     const messages = {
         tr: {
@@ -28,9 +28,11 @@
 
     const userLang = navigator.language.split('-')[0];
     const t = (key) => (messages[userLang] || messages.en)[key];
-    const myBrowser = typeof browser !== 'undefined' ? browser : chrome;
+    // chrome namespace works callback-style in both Chrome and Firefox;
+    // Firefox's `browser` namespace rejects callbacks (promise-only API).
+    const myBrowser = typeof chrome !== 'undefined' && chrome.runtime ? chrome : browser;
     const API_BASE = 'http://127.0.0.1:3000';
-    const manifestVersion = myBrowser.runtime.getManifest ? myBrowser.runtime.getManifest().version : '1.5.12';
+    const manifestVersion = myBrowser.runtime.getManifest ? myBrowser.runtime.getManifest().version : '1.5.13';
 
     let currentVideoInfo = null;
     let pollTimer = null;

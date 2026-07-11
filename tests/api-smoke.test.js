@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const rootDir = path.resolve(__dirname, '..');
+const appVersion = require(path.join(rootDir, 'package.json')).version;
 const port = String(35000 + Math.floor(Math.random() * 1000));
 const appDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uniget-test-'));
 const downloadsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uniget-downloads-'));
@@ -48,7 +49,7 @@ async function statusFor(url, options) {
         const health = await waitForHealth(baseUrl);
         assert.strictEqual(health.status, 'ok');
         assert.strictEqual(health.app, 'UniGet');
-        assert.strictEqual(health.version, '1.5.12');
+        assert.strictEqual(health.version, appVersion);
 
         const toolsRes = await fetch(`${baseUrl}/api/tools`);
         assert.strictEqual(toolsRes.status, 200);

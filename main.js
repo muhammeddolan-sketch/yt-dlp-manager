@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, screen, Tray, Menu, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { fork } = require('child_process');
 const http = require('http');
 
@@ -309,15 +310,37 @@ ipcMain.handle('select-folder', async () => {
     return result.filePaths[0];
 });
 
+// Autostart is only meaningful for the packaged app; in dev it reports unsupported.
+ipcMain.handle('get-autostart', () => {
+    if (!app.isPackaged) return { supported: false, enabled: false };
+    return { supported: true, enabled: !!app.getLoginItemSettings().openAtLogin };
+});
+
+ipcMain.handle('set-autostart', (event, enabled) => {
+    if (!app.isPackaged) return { supported: false, enabled: false };
+    app.setLoginItemSettings({
+        openAtLogin: !!enabled,
+        path: app.getPath('exe'),
+        args: ['--hidden']
+    });
+    return { supported: true, enabled: !!enabled };
+});
+
 app.on('ready', () => {
     if (!gotTheLock) return;
 
+    // Enable autostart by default only once; afterwards the user's choice
+    // (via the in-app toggle) is respected instead of being overwritten.
     if (app.isPackaged) {
-        app.setLoginItemSettings({
-            openAtLogin: true,
-            path: app.getPath('exe'),
-            args: ['--hidden']
-        });
+        const autostartMarker = path.join(app.getPath('userData'), '.autostart-initialized');
+        if (!fs.existsSync(autostartMarker)) {
+            app.setLoginItemSettings({
+                openAtLogin: true,
+                path: app.getPath('exe'),
+                args: ['--hidden']
+            });
+            try { fs.writeFileSync(autostartMarker, '1'); } catch (e) {}
+        }
     }
 
     startServer();

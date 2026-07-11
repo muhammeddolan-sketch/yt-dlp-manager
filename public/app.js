@@ -1,4 +1,4 @@
-// UniGet Pro v1.5.12 - Core Application Logic
+// UniGet Pro - Core Application Logic
 window.addEventListener('load', () => {
     const socket = typeof io !== 'undefined' ? io({ transports: ['websocket', 'polling'] }) : null;
     const urlInput = document.getElementById('urlInput');
@@ -40,12 +40,13 @@ window.addEventListener('load', () => {
     let currentVideoInfo = null;
     let activeDownloads = {};
     let currentView = 'all';
+    let searchQuery = '';
     let activeDetailsId = null;
     let lastNotifyById = {};
     const apiJsonHeaders = { 'Content-Type': 'application/json', 'X-UniGet-Client': 'desktop' };
     const apiClientHeaders = { 'X-UniGet-Client': 'desktop' };
     const firefoxAddonUrl = 'https://addons.mozilla.org/tr/firefox/addon/yt-dlm-web-helper/';
-    const chromePackageUrl = 'http://localhost:3000/extension/chrome-package';
+    const chromePackageUrl = `${window.location.origin}/extension/chrome-package`;
     let audioContext = null;
     let soundEnabled = localStorage.getItem('uniget_sound_effects') !== 'false';
 
@@ -205,9 +206,27 @@ window.addEventListener('load', () => {
         if (typeof updateUI === 'function') updateUI(); 
     }
 
-    // Autostart Status
+    // Autostart Status — prefer the Electron IPC bridge (works on Windows);
+    // fall back to the Linux desktop-file API served by the backend.
     const autostartCheck = document.getElementById('autostartCheck');
-    if (autostartCheck) {
+    const useIpcAutostart = !!(window.unigetAPI && window.unigetAPI.getAutostart);
+    if (autostartCheck && useIpcAutostart) {
+        window.unigetAPI.getAutostart().then((data) => {
+            autostartCheck.checked = !!(data && data.enabled);
+            if (data && data.supported === false) {
+                const row = autostartCheck.closest('.switch-container');
+                if (row) row.style.opacity = '0.55';
+            }
+        }).catch(e => console.warn('Autostart error:', e));
+
+        autostartCheck.addEventListener('change', async () => {
+            try {
+                await window.unigetAPI.setAutostart(autostartCheck.checked);
+            } catch (e) {
+                console.error(e);
+            }
+        });
+    } else if (autostartCheck) {
         fetch('/api/autostart/status').then(r => r.json()).then(data => {
             autostartCheck.checked = data.enabled;
         }).catch(e => console.warn('Autostart error:', e));
@@ -443,6 +462,15 @@ window.addEventListener('load', () => {
         }
     });
 
+    // Download list search filter
+    const filterInput = document.getElementById('filterInput');
+    if (filterInput) {
+        filterInput.addEventListener('input', () => {
+            searchQuery = filterInput.value.trim().toLowerCase();
+            renderList();
+        });
+    }
+
     navItems.forEach(item => {
         item.addEventListener('click', () => {
             navItems.forEach(nav => nav.classList.remove('active'));
@@ -500,6 +528,10 @@ window.addEventListener('load', () => {
             } else if (btn.classList.contains('copy-error-btn')) {
                 const dl = activeDownloads[dlId];
                 const ok = await copyText(dl ? `${dl.title || 'Download'}\n${dl.url || ''}\n${dl.errorDetail || dl.status || ''}` : '');
+                playSound(ok ? 'success' : 'error');
+            } else if (btn.classList.contains('copy-link-btn')) {
+                const dl = activeDownloads[dlId];
+                const ok = await copyText(dl ? dl.url : '');
                 playSound(ok ? 'success' : 'error');
             }
         });
@@ -674,7 +706,8 @@ window.addEventListener('load', () => {
 
         socket.on('progress', (data) => {
             mergeDownload(data);
-            let dl = activeDownloads[data.id];
+            const dl = activeDownloads[data.id];
+            if (!dl) return;
 
             if (activeDetailsId === dl.id && detailsModal && detailsModal.style.display !== 'none') {
                 if (!dl.speedHistory) dl.speedHistory = [];
@@ -779,6 +812,10 @@ window.addEventListener('load', () => {
     }
 
     function downloadMatchesCurrentView(dl) {
+        if (searchQuery) {
+            const haystack = `${dl?.title || ''} ${dl?.url || ''}`.toLowerCase();
+            if (!haystack.includes(searchQuery)) return false;
+        }
         const status = String(dl?.status || '');
         if (currentView === 'all') return true;
         if (currentView === 'completed') return status === 'completed';
@@ -861,6 +898,9 @@ window.addEventListener('load', () => {
             }
             if (rawStatus === 'completed' && dl.filePath) {
                 actionButtons += `<button class="btn-icon play-file-btn" title="Videoyu Aç"><i class="fas fa-play-circle"></i></button>`;
+            }
+            if (dl.url) {
+                actionButtons += `<button class="btn-icon copy-link-btn" title="${typeof t === 'function' ? t('copy_link') : 'Copy link'}"><i class="fas fa-link"></i></button>`;
             }
             actionButtons += `<button class="btn-icon details-btn" title="${typeof t === 'function' ? t('details_btn') : 'Details'}"><i class="fas fa-chart-line"></i></button>`;
             actionButtons += `<button class="btn-icon open-btn" title="${typeof t === 'function' ? t('open_folder') : 'Open'}"><i class="fas fa-folder-open"></i></button>`;
@@ -1006,7 +1046,7 @@ window.addEventListener('load', () => {
     if (installUserScriptBtn) {
         installUserScriptBtn.addEventListener('click', () => {
             playSound('start');
-            openExternalUrl('http://localhost:3000/uniget-extension.user.js');
+            openExternalUrl(`${window.location.origin}/uniget-extension.user.js`);
             if (setupModal) setupModal.style.display = 'none';
         });
     }

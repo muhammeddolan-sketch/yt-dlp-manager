@@ -370,6 +370,30 @@ input:focus {
     justify-content: space-between;
 }
 
+.list-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--panel-bg);
+    color: var(--text-dim);
+    flex: 1 1 160px;
+    max-width: 260px;
+    min-height: 32px;
+}
+
+.list-filter input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--text-main);
+    font-size: 0.85rem;
+}
+
 .check-row,
 .switch-container {
     display: inline-flex;

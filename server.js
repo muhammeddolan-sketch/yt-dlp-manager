@@ -10,6 +10,8 @@ const https = require('https');
 const cors = require('cors');
 const crypto = require('crypto');
 
+const APP_VERSION = require('./package.json').version;
+
 const app = express();
 const server = http.createServer(app);
 function isAllowedOrigin(origin) {
@@ -113,11 +115,17 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 app.get('/extension/chrome-package', (req, res) => {
-    const packagePath = path.join(__dirname, 'UniGet-Extension-v1.5.12.zip');
-    if (!fs.existsSync(packagePath)) {
+    let packageName = null;
+    try {
+        packageName = fs.readdirSync(__dirname)
+            .filter(name => /^UniGet-Extension-v[\d.]+\.zip$/.test(name))
+            .sort()
+            .pop() || null;
+    } catch {}
+    if (!packageName) {
         return res.status(404).json({ error: 'Chrome extension package not found' });
     }
-    res.download(packagePath, 'UniGet-Extension-v1.5.12.zip');
+    res.download(path.join(__dirname, packageName), packageName);
 });
 
 let downloads = {};
@@ -563,17 +571,21 @@ function getFfmpegLocationArg() {
     return null;
 }
 
-function downloadFile(url, destPath, timeoutMs = 60000) {
+function downloadFile(url, destPath, timeoutMs = 60000, redirectsLeft = 5) {
     return new Promise((resolve, reject) => {
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
         const file = fs.createWriteStream(destPath);
 
-        const request = https.get(url, { headers: { 'User-Agent': 'UniGet Pro v1.5.12' } }, (res) => {
-            // Follow redirects
+        const request = https.get(url, { headers: { 'User-Agent': `UniGet Pro v${APP_VERSION}` } }, (res) => {
+            // Follow redirects (bounded), keeping the caller's timeout budget
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 file.close(() => {
                     try { fs.unlinkSync(destPath); } catch {}
-                    downloadFile(res.headers.location, destPath).then(resolve, reject);
+                    if (redirectsLeft <= 0) {
+                        reject(new Error('Download failed: too many redirects'));
+                        return;
+                    }
+                    downloadFile(res.headers.location, destPath, timeoutMs, redirectsLeft - 1).then(resolve, reject);
                 });
                 return;
             }
@@ -1200,6 +1212,7 @@ app.post('/api/action', (req, res) => {
         delete downloads[id];
         delete progressEmitState[id];
         io.emit('download-cancelled', { id });
+        persistDownloadsState();
 
         // Kick queued downloads
         for (const qid in downloads) {
@@ -1400,8 +1413,18 @@ app.post('/api/tools/install-ffmpeg', async (req, res) => {
     }
 });
 
+function compareVersions(a, b) {
+    const pa = String(a).split('.').map(n => Number.parseInt(n, 10) || 0);
+    const pb = String(b).split('.').map(n => Number.parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const diff = (pa[i] || 0) - (pb[i] || 0);
+        if (diff !== 0) return diff;
+    }
+    return 0;
+}
+
 app.get('/api/update-check', (req, res) => {
-    const currentVersion = '1.5.12';
+    const currentVersion = APP_VERSION;
     const options = {
         hostname: 'api.github.com',
         path: '/repos/muhammeddolan-sketch/yt-dlp-manager/releases/latest',
@@ -1427,7 +1450,7 @@ app.get('/api/update-check', (req, res) => {
                 res.json({
                     currentVersion,
                     latestVersion,
-                    hasUpdate: !!latestVersion && latestVersion !== currentVersion,
+                    hasUpdate: !!latestVersion && compareVersions(latestVersion, currentVersion) > 0,
                     url: release.html_url || 'https://github.com/muhammeddolan-sketch/yt-dlp-manager/releases'
                 });
             } catch (e) {
@@ -1442,7 +1465,7 @@ app.get('/api/update-check', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.5.12', app: 'UniGet' });
+    res.json({ status: 'ok', version: APP_VERSION, app: 'UniGet' });
 });
 
 server.on('error', (err) => {
