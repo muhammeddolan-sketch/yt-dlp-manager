@@ -1,6 +1,6 @@
 {
   "name": "yt-dlp-manager",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Premium YT-DLP GUI Manager",
   "main": "main.js",
   "scripts": {

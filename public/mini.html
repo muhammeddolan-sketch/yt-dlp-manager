@@ -7,9 +7,9 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background: linear-gradient(135deg, #1c1633, #241b3f);
-            color: #ffffff;
-            font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+            background: oklch(20% 0.015 130);
+            color: oklch(94% 0.01 130);
+            font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
             border-radius: 10px;
             display: flex;
             align-items: center;
@@ -17,10 +17,10 @@
             height: 100vh;
             -webkit-app-region: drag;
             cursor: pointer;
-            border: 1px solid #473e6e;
+            border: 1px solid oklch(30% 0.015 130);
         }
         body:hover {
-            background: linear-gradient(135deg, #251c42, #2e2250);
+            background: oklch(23% 0.015 130);
         }
         .mini-btn {
             font-size: 11px; /* Smaller font */

@@ -4,92 +4,59 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UniGet</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="i18n.js"></script>
 </head>
 <body>
     <div class="app-container">
-        <aside class="sidebar">
-            <div class="logo">
-                <img src="icon.png" alt="UniGet Logo">
-                <span>UniGet</span>
-            </div>
+        <nav class="icon-rail">
+            <img class="rail-logo" src="icon.png" alt="UniGet">
 
-            <nav class="nav-stack">
-                <button class="nav-item active" data-view="all" type="button">
-                    <i class="fas fa-list"></i>
-                    <span data-i18n="all">Hepsi</span>
-                </button>
-                <button class="nav-item" data-view="downloading" type="button">
-                    <i class="fas fa-download"></i>
-                    <span data-i18n="downloading">İndirilenler</span>
-                </button>
-                <button class="nav-item" data-view="completed" type="button">
-                    <i class="fas fa-check-circle"></i>
-                    <span data-i18n="completed">Tamamlananlar</span>
-                </button>
-            </nav>
+            <button class="nav-item active" data-view="all" type="button" title="Tümü" data-i18n-title="all">
+                <i class="fas fa-list"></i>
+            </button>
+            <button class="nav-item" data-view="downloading" type="button" title="İndiriliyor" data-i18n-title="downloading">
+                <i class="fas fa-download"></i>
+            </button>
+            <button class="nav-item" data-view="completed" type="button" title="Tamamlandı" data-i18n-title="completed">
+                <i class="fas fa-check-circle"></i>
+            </button>
+            <button class="nav-item" id="clearCompletedBtn" type="button" title="Temizle" data-i18n-title="clear">
+                <i class="fas fa-broom"></i>
+            </button>
 
-            <div class="sidebar-section">
-                <button class="nav-item" id="clearCompletedBtn" type="button">
-                    <i class="fas fa-broom"></i>
-                    <span data-i18n="clear">Temizle</span>
-                </button>
-                <button class="nav-item" id="openSettingsBtn" type="button">
-                    <i class="fas fa-sliders-h"></i>
-                    <span data-i18n="settings">Ayarlar</span>
-                </button>
-                <button class="nav-item accent-link" id="openSetupBtn" type="button">
-                    <i class="fas fa-puzzle-piece"></i>
-                    <span data-i18n="setup_guide">Eklenti Kurulumu</span>
-                </button>
-            </div>
+            <div class="rail-spacer"></div>
 
-            <div class="sidebar-section compact-controls">
-                <button id="themeToggleBtn" class="tool-button" type="button" title="Theme">
-                    <i class="fas fa-moon"></i>
-                </button>
-                <select id="langSelect" aria-label="Language">
-                    <option value="tr">Türkçe</option>
-                    <option value="en">English</option>
-                    <option value="de">Deutsch</option>
-                    <option value="fr">Français</option>
-                    <option value="es">Español</option>
-                </select>
-            </div>
-
-            <label class="switch-container sidebar-toggle">
-                <input type="checkbox" id="autostartCheck" class="switch-input">
-                <span class="switch-slider"></span>
-                <span class="switch-label" data-i18n="autostart">Bilgisayar açılınca başlat</span>
-            </label>
-
-            <div class="sidebar-note">
-                <span data-i18n="clipboard_on">Pano: Açık</span>
-                <span data-i18n="clipboard_capturing">Bağlantılar yakalanıyor</span>
-            </div>
-
-            <div class="sidebar-footer">
-                <button id="donateBtn" class="donate-btn" type="button">
-                    <i class="fas fa-heart"></i>
-                    <span data-i18n="support">Destek Ol</span>
-                </button>
-                <span class="version">v1.6.0</span>
-            </div>
-        </aside>
+            <button id="donateBtn" class="tool-button donate-tool" type="button" title="Destek Ol" data-i18n-title="support">
+                <i class="fas fa-heart"></i>
+            </button>
+            <button id="themeToggleBtn" class="tool-button" type="button" title="Tema">
+                <i class="fas fa-moon"></i>
+            </button>
+            <button id="openSettingsBtn" class="tool-button" type="button" title="Ayarlar" data-i18n-title="settings">
+                <i class="fas fa-sliders-h"></i>
+            </button>
+        </nav>
 
         <main class="main-content">
             <header class="workspace-header">
                 <div>
                     <p class="section-label">UniGet</p>
-                    <h1>Downloads</h1>
+                    <h1 data-i18n="downloads_title">İndirmeler</h1>
                 </div>
                 <div class="header-actions">
+                    <button id="openSetupBtn" class="header-button" type="button">
+                        <i class="fas fa-puzzle-piece"></i>
+                        <span data-i18n="setup_guide">Eklenti Kurulumu</span>
+                    </button>
                     <button id="pinWindowBtn" class="btn-icon" type="button" title="Daima Üstte Kal">
                         <i class="fas fa-thumbtack"></i>
                     </button>
-                    <button id="openFolderGlobal" class="btn-icon" type="button" title="Klasörü Aç">
+                    <button id="openFolderGlobal" class="btn-icon" type="button" title="Klasörü Aç" data-i18n-title="open_folder">
                         <i class="fas fa-folder-open"></i>
                     </button>
                 </div>
@@ -97,7 +64,10 @@
 
             <section class="command-panel">
                 <div class="search-bar">
-                    <input type="text" id="urlInput" data-i18n="placeholder_url" placeholder="URL yapıştırın veya sürükleyin">
+                    <div class="url-field">
+                        <i class="fas fa-link"></i>
+                        <input type="text" id="urlInput" data-i18n="placeholder_url" placeholder="URL yapıştırın veya sürükleyin">
+                    </div>
                     <button id="addBtn" type="button" aria-label="Add download">
                         <i class="fas fa-plus"></i>
                     </button>
@@ -112,12 +82,24 @@
                         <input type="text" id="filterInput" data-i18n="filter_placeholder" placeholder="İndirmelerde ara...">
                     </div>
                     <label class="switch-container">
+                        <span class="switch-label">Hızlı İndir</span>
                         <input type="checkbox" id="quickDownloadCheck" class="switch-input">
                         <span class="switch-slider"></span>
-                        <span class="switch-label">Hızlı İndir</span>
                     </label>
                 </div>
             </section>
+
+            <div class="view-tabs">
+                <button class="nav-item active" data-view="all" type="button">
+                    <span data-i18n="all">Tümü</span>
+                </button>
+                <button class="nav-item" data-view="downloading" type="button">
+                    <span data-i18n="downloading">İndiriliyor</span>
+                </button>
+                <button class="nav-item" data-view="completed" type="button">
+                    <span data-i18n="completed">Tamamlandı</span>
+                </button>
+            </div>
 
             <section class="download-list" id="downloadList">
                 <div class="empty-state">
@@ -155,7 +137,7 @@
                     </select>
                 </label>
                 <label class="field">
-                    <span>Profile</span>
+                    <span>Profil</span>
                     <select id="profileOption">
                         <option value="custom">Custom</option>
                         <option value="fast_720">Fast 720p</option>
@@ -226,6 +208,35 @@
             <div class="settings-grid">
                 <section class="settings-section">
                     <div class="section-head">
+                        <i class="fas fa-globe"></i>
+                        <div>
+                            <h3>Genel</h3>
+                            <p>Dil ve başlangıç davranışı.</p>
+                        </div>
+                    </div>
+                    <div class="settings-two-col">
+                        <label class="field">
+                            <span>Dil</span>
+                            <select id="langSelect" aria-label="Language">
+                                <option value="tr">Türkçe</option>
+                                <option value="en">English</option>
+                                <option value="de">Deutsch</option>
+                                <option value="fr">Français</option>
+                                <option value="es">Español</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label class="switch-container setting-toggle">
+                        <input type="checkbox" id="autostartCheck" class="switch-input">
+                        <span class="switch-slider"></span>
+                        <span class="switch-copy">
+                            <strong data-i18n="autostart">Bilgisayar açılınca başlat</strong>
+                        </span>
+                    </label>
+                </section>
+
+                <section class="settings-section">
+                    <div class="section-head">
                         <i class="fas fa-folder-open"></i>
                         <div>
                             <h3>İndirme konumu</h3>
@@ -265,7 +276,7 @@
                         </label>
                         <label class="field">
                             <span>Bandwidth Limit (KB/s)</span>
-                            <input type="number" id="rateLimitInput" min="0" step="128" placeholder="0 = unlimited">
+                            <input type="number" id="rateLimitInput" min="0" step="128" placeholder="0 = sınırsız">
                         </label>
                     </div>
                     <div class="toggle-stack">
@@ -339,6 +350,10 @@
                         FFmpeg Kur
                     </button>
                 </div>
+
+                <div class="settings-footer">
+                    <span class="version">v1.7.0</span>
+                </div>
             </div>
         </div>
     </div>
@@ -354,7 +369,7 @@
                 </div>
             </div>
             <div class="setup-panel">
-                <p>Web sayfalarındaki video bağlantılarını UniGet'e göndermek için userscript kurulumu gerekir.</p>
+                <p>Web sayfalarındaki video bağlantılarını UniGet'e göndermek için eklenti kurulumu gerekir.</p>
                 <div class="extension-links">
                     <button id="firefoxAddonBtn" class="store-button" type="button">
                         <i class="fab fa-firefox-browser"></i>

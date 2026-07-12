@@ -473,9 +473,9 @@ window.addEventListener('load', () => {
 
     navItems.forEach(item => {
         item.addEventListener('click', () => {
-            navItems.forEach(nav => nav.classList.remove('active'));
-            item.classList.add('active');
             currentView = item.getAttribute('data-view');
+            // Icon rail and view tabs mirror the same view state
+            navItems.forEach(nav => nav.classList.toggle('active', nav.getAttribute('data-view') === currentView));
             renderList();
         });
     });
@@ -547,16 +547,17 @@ window.addEventListener('load', () => {
 
     // Inline URL validation feedback
     if (urlInput) {
+        const urlField = urlInput.closest('.url-field') || urlInput;
         urlInput.addEventListener('input', () => {
             const val = urlInput.value.trim();
             if (!val) {
-                urlInput.style.borderColor = '';
+                urlField.style.borderColor = '';
                 return;
             }
-            urlInput.style.borderColor = isValidUrl(val) ? 'var(--success)' : 'var(--danger)';
+            urlField.style.borderColor = isValidUrl(val) ? 'var(--success)' : 'var(--danger)';
         });
         urlInput.addEventListener('blur', () => {
-            urlInput.style.borderColor = '';
+            urlField.style.borderColor = '';
         });
     }
 
@@ -825,8 +826,8 @@ window.addEventListener('load', () => {
         return true;
     }
 
-    function updateCard(dl) {
-        let card = document.getElementById(`dl-${dl.id}`);
+    function updateCard(dl, cardEl) {
+        let card = cardEl || document.getElementById(`dl-${dl.id}`);
         if (!card) {
             const emptyState = downloadList.querySelector('.empty-state');
             if (emptyState) emptyState.remove();
@@ -859,9 +860,9 @@ window.addEventListener('load', () => {
 
         if (meta) {
             meta.innerHTML = `
-                <span><i class="fas fa-percent"></i> ${dl.progress || 0}%</span>
-                <span><i class="fas fa-tachometer-alt"></i> ${dl.speed || '--'}</span>
-                <span><i class="fas fa-clock"></i> ${dl.eta || '--:--'}</span>
+                <span>${dl.progress || 0}%</span>
+                <span>${dl.speed || '--'}</span>
+                <span>${dl.eta || '--:--'}</span>
                 <span class="status-badge" style="text-transform: capitalize;">${safeStatus}</span>
             `;
         }
@@ -982,7 +983,9 @@ window.addEventListener('load', () => {
             </div>
             <div class="card-actions" style="display:flex; gap: 5px;"></div>
         `;
-        updateCard(dl);
+        // Pass the element directly: the card is not in the DOM yet, so an id
+        // lookup would miss and recurse back into createCard forever.
+        updateCard(dl, card);
         return card;
     }
 

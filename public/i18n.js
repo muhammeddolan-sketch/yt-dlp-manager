@@ -1,9 +1,10 @@
 const translations = {
     tr: {
         app_title: "UniGet",
-        all: "Hepsi",
-        downloading: "İndirilenler",
-        completed: "Tamamlananlar",
+        downloads_title: "İndirmeler",
+        all: "Tümü",
+        downloading: "İndiriliyor",
+        completed: "Tamamlandı",
         open_folder: "Klasörü Aç",
         clear: "Temizle",
         clipboard_on: "Pano: Açık",
@@ -58,6 +59,7 @@ const translations = {
     },
     en: {
         app_title: "UniGet",
+        downloads_title: "Downloads",
         all: "All",
         downloading: "Downloading",
         completed: "Completed",
@@ -115,6 +117,7 @@ const translations = {
     },
     de: {
         app_title: "UniGet",
+        downloads_title: "Downloads",
         all: "Alle",
         downloading: "Herunterladen",
         completed: "Abgeschlossen",
@@ -172,6 +175,7 @@ const translations = {
     },
     fr: {
         app_title: "UniGet",
+        downloads_title: "Téléchargements",
         all: "Tout",
         downloading: "Téléchargement",
         completed: "Terminé",
@@ -229,6 +233,7 @@ const translations = {
     },
     es: {
         app_title: "UniGet",
+        downloads_title: "Descargas",
         all: "Todo",
         downloading: "Descargando",
         completed: "Completado",
@@ -320,7 +325,12 @@ function updateUI() {
             el.innerText = t(key);
         }
     });
-    
+
+    // Tooltip-only labels (icon rail buttons etc.)
+    document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        el.title = t(el.getAttribute('data-i18n-title'));
+    });
+
     // Reload list if it's there
     if (typeof renderList === 'function') renderList();
     
