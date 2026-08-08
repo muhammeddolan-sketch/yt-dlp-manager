@@ -67,6 +67,18 @@
         try { return new URL(value, window.location.href); } catch { return null; }
     }
 
+    // yt-dlp's X/Twitter extractor needs a segment before /status/, i.e.
+    // /<user>/status/<id> (or /i/status/<id>). Matching only "/status/<id>"
+    // drops the username and yields an "Unsupported URL" error, so preserve
+    // the segment that precedes /status/ and fall back to /i/status/<id>.
+    function normalizeStatusPath(pathname) {
+        let m = pathname.match(/\/([^/]+)\/status\/(\d+)/);
+        if (m) return `/${m[1]}/status/${m[2]}`;
+        m = pathname.match(/\/status\/(\d+)/);
+        if (m) return `/i/status/${m[1]}`;
+        return null;
+    }
+
     function getStatusUrlFromElement(el) {
         const article = el?.closest?.('article') || document.elementFromPoint(mouseX, mouseY)?.closest?.('article');
         const scope = article || document;
@@ -75,9 +87,9 @@
             const parsed = safeUrl(a.getAttribute('href'));
             if (!parsed) continue;
             if (!/(^|\.)x\.com$|(^|\.)twitter\.com$/.test(parsed.hostname)) continue;
-            const match = parsed.pathname.match(/\/status\/\d+/);
-            if (!match) continue;
-            parsed.pathname = match[0];
+            const normalized = normalizeStatusPath(parsed.pathname);
+            if (!normalized) continue;
+            parsed.pathname = normalized;
             parsed.search = '';
             parsed.hash = '';
             return parsed.toString();
@@ -85,9 +97,9 @@
 
         const current = safeUrl(window.location.href);
         if (current && /(^|\.)x\.com$|(^|\.)twitter\.com$/.test(current.hostname)) {
-            const match = current.pathname.match(/\/status\/\d+/);
-            if (match) {
-                current.pathname = match[0];
+            const normalized = normalizeStatusPath(current.pathname);
+            if (normalized) {
+                current.pathname = normalized;
                 current.search = '';
                 current.hash = '';
                 return current.toString();
