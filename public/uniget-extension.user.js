@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         UniGet Web Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.6.0
+// @version      1.7.0
 // @description  Adds a clean floating download button to all videos
 // @author       Antigravity
 // @match        *://*/*

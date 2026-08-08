@@ -736,6 +736,9 @@ window.addEventListener('load', () => {
         if (!['completed', 'failed'].includes(status) && !status.startsWith('error:')) return;
         const cacheKey = `${dl.id}:${status}`;
         if (lastNotifyById[cacheKey]) return;
+        // Prevent unbounded growth over long sessions.
+        const keys = Object.keys(lastNotifyById);
+        if (keys.length > 200) delete lastNotifyById[keys[0]];
         lastNotifyById[cacheKey] = true;
         playSound(status === 'completed' ? 'success' : 'error');
         if ('Notification' in window) {

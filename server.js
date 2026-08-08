@@ -291,7 +291,7 @@ function persistDownloadsState() {
         try {
             const toSave = {};
             for (const id in downloads) {
-                const { process: _p, ...rest } = downloads[id];
+                const { process: _p, _spawning, ...rest } = downloads[id];
                 toSave[id] = rest;
             }
             const p = getDownloadsStatePath();
@@ -808,7 +808,7 @@ function emitDownloadProgress(dl, force = false) {
 
 function toSafeDownload(dl) {
     if (!dl) return null;
-    const { process: _p, ...safeDl } = dl;
+    const { process: _p, _spawning, ...safeDl } = dl;
     return safeDl;
 }
 
@@ -949,6 +949,12 @@ async function startDownloadTask(id) {
     const dl = downloads[id];
     if (!dl) return;
 
+    // Guard against double-start: if this download already has a live process
+    // or is mid-spawn, bail out. Both the 3s queue self-retry and the on-close
+    // "kick next queued" path can otherwise fire for the same id and spawn two
+    // yt-dlp processes for one download.
+    if (dl.process || dl._spawning) return;
+
     if (IS_TEST_RUNNER_DISABLED) {
         dl.status = 'queued';
         dl.progress = 0;
@@ -966,6 +972,10 @@ async function startDownloadTask(id) {
         }, 3000);
         return;
     }
+
+    // Reserve this task synchronously (before any await) so a concurrent
+    // invocation sees the flag and returns early.
+    dl._spawning = true;
 
     const ffmpegAvailable = await hasFfmpeg();
     const formatOption = getVideoFormatOption(dl.quality, ffmpegAvailable);
@@ -1049,6 +1059,7 @@ async function startDownloadTask(id) {
     const ytDlpCmd = await ensureYtDlpAvailable();
     console.log(`Starting yt-dlp with args: ${ytDlpCmd} ${args.join(' ')}`);
     dl.process = spawn(ytDlpCmd, args);
+    dl._spawning = false;
     dl.status = 'downloading';
 
     dl.process.stdout.on('data', (data) => {
@@ -1251,12 +1262,7 @@ app.post('/api/clear-completed', (req, res) => {
         }
     });
     if (changed) {
-        const safeDownloads = {};
-        for (const id in downloads) {
-            const { process: _p, ...rest } = downloads[id];
-            safeDownloads[id] = rest;
-        }
-        io.emit('initial-state', safeDownloads);
+        io.emit('initial-state', getSafeDownloads());
         persistDownloadsState();
     }
     res.json({ success: true });
