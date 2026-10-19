@@ -65,7 +65,14 @@ const translations = {
         no_completed: "Henüz tamamlanmış indirme yok.",
         no_active: "Şu anda indirilen bir video yok.",
         sidebar_collapse: "Soldaki sütunu küçült",
-        sidebar_expand: "Soldaki sütunu büyüt"
+        sidebar_expand: "Soldaki sütunu büyüt",
+        repair_title: "İndirme araçları eksik",
+        repair_desc: "yt-dlp eksik olduğu için indirme başlatılamadı.",
+        repair_defender: "Windows Defender yt-dlp.exe'yi sildi ise: Windows Güvenliği → Koruma geçmişi → \"İzin ver\", ardından %APPDATA%\\uniget klasörünü Dışlamalar'a ekleyin.",
+        repair_btn: "Araçları Onar",
+        repair_running: "Araçlar onarılıyor, indirme araçları tekrar hazırlanıyor...",
+        repair_done: "Araçlar onarıldı — başarısız indirmeler otomatik yeniden deneniyor.",
+        repair_failed: "Onarım başarısız:"
     },
     en: {
         app_title: "UniGet",
@@ -133,7 +140,14 @@ const translations = {
         no_completed: "No completed downloads yet.",
         no_active: "No active downloads right now.",
         sidebar_collapse: "Collapse the sidebar",
-        sidebar_expand: "Expand the sidebar"
+        sidebar_expand: "Expand the sidebar",
+        repair_title: "Download tools are missing",
+        repair_desc: "Downloads could not start because yt-dlp is missing.",
+        repair_defender: "If Windows Defender removed yt-dlp.exe: Windows Security → Protection history → \"Allow it\", then add the %APPDATA%\\uniget folder to Exclusions.",
+        repair_btn: "Repair tools",
+        repair_running: "Repairing tools, getting downloads ready again...",
+        repair_done: "Tools repaired — failed downloads are being retried automatically.",
+        repair_failed: "Repair failed:"
     },
     de: {
         app_title: "UniGet",
@@ -201,7 +215,14 @@ const translations = {
         no_completed: "Noch keine abgeschlossenen Downloads.",
         no_active: "Derzeit keine aktiven Downloads.",
         sidebar_collapse: "Seitenleiste einklappen",
-        sidebar_expand: "Seitenleiste ausklappen"
+        sidebar_expand: "Seitenleiste ausklappen",
+        repair_title: "Download-Tools fehlen",
+        repair_desc: "Downloads konnten nicht gestartet werden, da yt-dlp fehlt.",
+        repair_defender: "Wenn Windows Defender yt-dlp.exe entfernt hat: Windows-Sicherheit → Schutzverlauf → \"Zulassen\", danach den Ordner %APPDATA%\\uniget zu den Ausschlüssen hinzufügen.",
+        repair_btn: "Tools reparieren",
+        repair_running: "Tools werden repariert...",
+        repair_done: "Tools repariert — fehlgeschlagene Downloads werden automatisch erneut versucht.",
+        repair_failed: "Reparatur fehlgeschlagen:"
     },
     fr: {
         app_title: "UniGet",
@@ -269,7 +290,14 @@ const translations = {
         no_completed: "Aucun téléchargement terminé pour le moment.",
         no_active: "Aucun téléchargement actif pour le moment.",
         sidebar_collapse: "Réduire la barre latérale",
-        sidebar_expand: "Développer la barre latérale"
+        sidebar_expand: "Développer la barre latérale",
+        repair_title: "Outils de téléchargement manquants",
+        repair_desc: "Les téléchargements n'ont pas pu démarrer car yt-dlp est absent.",
+        repair_defender: "Si Windows Defender a supprimé yt-dlp.exe : Sécurité Windows → Historique de protection → « Autoriser », puis ajoutez le dossier %APPDATA%\\uniget aux exclusions.",
+        repair_btn: "Réparer les outils",
+        repair_running: "Réparation des outils en cours...",
+        repair_done: "Outils réparés — les téléchargements en échec sont automatiquement relancés.",
+        repair_failed: "Échec de la réparation :"
     },
     es: {
         app_title: "UniGet",
@@ -337,7 +365,14 @@ const translations = {
         no_completed: "Aún no hay descargas completadas.",
         no_active: "No hay descargas activas en este momento.",
         sidebar_collapse: "Contraer la barra lateral",
-        sidebar_expand: "Expandir la barra lateral"
+        sidebar_expand: "Expandir la barra lateral",
+        repair_title: "Faltan herramientas de descarga",
+        repair_desc: "Las descargas no pudieron iniciarse porque falta yt-dlp.",
+        repair_defender: "Si Windows Defender eliminó yt-dlp.exe: Seguridad de Windows → Historial de protección → \"Permitir\", y añade la carpeta %APPDATA%\\uniget a Exclusiones.",
+        repair_btn: "Reparar herramientas",
+        repair_running: "Reparando herramientas...",
+        repair_done: "Herramientas reparadas — las descargas fallidas se reintentan automáticamente.",
+        repair_failed: "Fallo en la reparación:"
     }
 };
 

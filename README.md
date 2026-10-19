@@ -1,4 +1,4 @@
-# UniGet - Ultimate Media Manager v1.8.6
+# UniGet - Ultimate Media Manager v1.8.7
 
 UniGet (formerly YT-DLM) is a premium, modern, and powerful graphical user interface (GUI) for `yt-dlp`. Designed with a **sidebar-driven, horizontal library layout** over a high-performance foundation, it offers an experience that surpasses traditional download managers by combining advanced features with contemporary design.
 

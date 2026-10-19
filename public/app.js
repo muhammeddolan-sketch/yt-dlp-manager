@@ -47,6 +47,11 @@ window.addEventListener('load', () => {
     const toolStatus = document.getElementById('toolStatus');
     const installFfmpegBtn = document.getElementById('installFfmpegBtn');
     const updateYtDlpBtn = document.getElementById('updateYtDlpBtn');
+    const repairBanner = document.getElementById('repairBanner');
+    const repairTitle = document.getElementById('repairTitle');
+    const repairDesc = document.getElementById('repairDesc');
+    const repairToolsBtn = document.getElementById('repairToolsBtn');
+    const repairDismissBtn = document.getElementById('repairDismissBtn');
     const appVersionEl = document.getElementById('appVersion');
     const firefoxAddonBtn = document.getElementById('firefoxAddonBtn');
     const chromePackageBtn = document.getElementById('chromePackageBtn');
@@ -441,6 +446,126 @@ window.addEventListener('load', () => {
             }
         });
     }
+
+    // ── Tool repair banner: missing yt-dlp / ffmpeg self-heal ────────────
+    let repairFailedIds = new Set();
+    let repairDismissed = false;
+
+    function bannerText(el, key, fallback) {
+        if (el) el.textContent = typeof t === 'function' ? t(key) : fallback;
+    }
+
+    function showRepairBanner(desc, titleKey = 'repair_title') {
+        if (!repairBanner) return;
+        if (repairDismissed) return;
+        bannerText(repairTitle, titleKey, 'İndirme araçları eksik');
+        bannerText(repairDesc, 'repair_desc', 'yt-dlp eksik olduğu için indirme başlatılamadı.');
+        if (desc && repairDesc) repairDesc.textContent = desc;
+        repairBanner.classList.remove('success');
+        repairBanner.hidden = false;
+    }
+
+    function hideRepairBanner() {
+        if (repairBanner) repairBanner.hidden = true;
+    }
+
+    if (repairDismissBtn) {
+        repairDismissBtn.addEventListener('click', () => {
+            repairDismissed = true;
+            hideRepairBanner();
+        });
+    }
+
+    async function runToolRepair() {
+        if (!repairToolsBtn || repairToolsBtn.disabled) return;
+        repairToolsBtn.disabled = true;
+        const wrenchIcon = repairToolsBtn.querySelector('i');
+        if (wrenchIcon) wrenchIcon.classList.add('fa-spin');
+        bannerText(repairDesc, 'repair_running', 'Araçlar onarılıyor...');
+        repairBanner?.classList.remove('success');
+
+        try {
+            // 1) yt-dlp: indir / güncelle
+            const ytRes = await fetch('/api/tools/update-ytdlp', {
+                method: 'POST',
+                headers: apiClientHeaders
+            });
+            const ytData = await ytRes.json().catch(() => ({}));
+            if (!ytRes.ok || ytData.error) throw new Error(ytData.error || 'yt-dlp onarımı başarısız');
+
+            // 2) ffmpeg eksikse kur
+            let tools = null;
+            try {
+                tools = (await (await fetch('/api/tools')).json());
+                if (tools && !(tools.ffmpeg && tools.ffmpeg.available)) {
+                    const ffRes = await fetch('/api/tools/install-ffmpeg', {
+                        method: 'POST',
+                        headers: apiClientHeaders
+                    });
+                    const ffData = await ffRes.json().catch(() => ({}));
+                    if (!ffRes.ok || ffData.error) throw new Error(ffData.error || 'FFmpeg kurulumu başarısız');
+                }
+            } catch (e) {
+                // FFmpeg isteğe bağlıdır: yt-dlp çalışıyorsa fallback devrede.
+                if (String(e.message).includes('yt-dlp')) throw e;
+            }
+
+            // 3) doğrula
+            const verify = (await (await fetch('/api/tools')).json());
+            const fixed = verify && verify.ytDlp && verify.ytDlp.version;
+            if (!fixed) throw new Error('Onarım doğrulanamadı; Defender yt-dlp.exe dosyasını silmiş olabilir.');
+
+            // 4) araçlar geri geldi → başarısız indirmeleri otomatik yeniden dene
+            repairFailedIds.forEach((id) => {
+                const dl = activeDownloads[id];
+                if (dl && (dl.status === 'failed' || String(dl.status).startsWith('error:'))) {
+                    fetch('/api/action', {
+                        method: 'POST',
+                        headers: apiJsonHeaders,
+                        body: JSON.stringify({ id, action: 'resume' })
+                    }).catch(() => {});
+                }
+            });
+            repairFailedIds.clear();
+            repairDismissed = false;
+
+            bannerText(repairDesc, 'repair_done', 'Araçlar onarıldı — indirmeler yeniden deneniyor.');
+            repairBanner.classList.add('success');
+            playSound('success');
+            if (typeof refreshToolStatus === 'function') refreshToolStatus();
+            setTimeout(hideRepairBanner, 4000);
+        } catch (e) {
+            playSound('error');
+            showRepairBanner(`${typeof t === 'function' ? t('repair_failed') : 'Onarım başarısız:'} ${e.message}`);
+        } finally {
+            if (wrenchIcon) wrenchIcon.classList.remove('fa-spin');
+            bannerText(repairTitle, 'repair_title', 'İndirme araçları eksik');
+            if (repairToolsBtn) repairToolsBtn.disabled = false;
+        }
+    }
+
+    if (repairToolsBtn) repairToolsBtn.addEventListener('click', runToolRepair);
+
+    function markToolMissingFailure(dl) {
+        const detail = String(dl.errorDetail || dl.status || '').toLowerCase();
+        const isMissing = String(dl.status).startsWith('error:yt-dlp-not-found')
+            || (!String(dl.status || '').startsWith('error:') && detail.includes('yt-dlp') && (detail.includes('bulunamadi') || detail.includes('bulunamadı') || detail.includes('not') && detail.includes('found')));
+        if (!isMissing) return;
+        if (dl.id) repairFailedIds.add(dl.id);
+        showRepairBanner();
+    }
+
+    async function checkToolsOnStartup() {
+        try {
+            const res = await fetch('/api/tools');
+            const data = await res.json();
+            if (data && data.ytDlp && !data.ytDlp.version) showRepairBanner();
+            if (appVersionEl && data.appVersion) appVersionEl.textContent = `v${data.appVersion}`;
+        } catch {
+            /* server unavailable: status refresh handles it */
+        }
+    }
+    checkToolsOnStartup();
 
     // Update flow: use the packaged auto-updater when available (Electron),
     // otherwise fall back to the public release check in the browser.
@@ -1193,8 +1318,10 @@ window.addEventListener('load', () => {
             statusText = 'Zamanlandi';
         } else if (rawStatus === 'failed') {
             statusText = dl.errorDetail || (typeof t === 'function' ? t('error') : 'Error');
+            markToolMissingFailure(dl);
         } else if (rawStatus.startsWith('error:')) {
             statusText = (dl.errorDetail || rawStatus.replace('error:', '')).substring(0, 120);
+            markToolMissingFailure(dl);
         } else {
             statusText = rawStatus.substring(0, 80);
         }
