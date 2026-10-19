@@ -25,6 +25,7 @@ window.addEventListener('load', () => {
     const sleepAfterDownloadCheck = document.getElementById('sleepAfterDownloadCheck');
     const soundEffectsCheck = document.getElementById('soundEffectsCheck');
     const accentColorInput = document.getElementById('accentColorInput');
+    const globalHotkeyInput = document.getElementById('globalHotkeyInput');
     const useBrowserCookiesCheck = document.getElementById('useBrowserCookiesCheck');
     const cookiesBrowserSelect = document.getElementById('cookiesBrowserSelect');
     const checkUpdatesBtn = document.getElementById('checkUpdatesBtn');
@@ -84,18 +85,7 @@ window.addEventListener('load', () => {
         });
     }
 
-    if (globalHotkeyInput) {
-        globalHotkeyInput.addEventListener('change', async () => {
-            const hk = globalHotkeyInput.value.trim();
-            if (!hk) return;
-            try {
-                if (window.unigetAPI && window.unigetAPI.setHotkey) {
-                    await window.unigetAPI.setHotkey(hk);
-                }
-            } catch (e) {}
-        });
-    }
-
+    // globalHotkeyInput listener attached later (after declarations)
     function getAudioContext() {
         if (!soundEnabled || !window.AudioContext && !window.webkitAudioContext) return null;
         if (!audioContext) {
@@ -280,7 +270,7 @@ window.addEventListener('load', () => {
     const outputTemplateInput = document.getElementById('outputTemplateInput');
     const historyRetentionInput = document.getElementById('historyRetentionInput');
     const postDownloadCommandInput = document.getElementById('postDownloadCommandInput');
-    const globalHotkeyInput = document.getElementById('globalHotkeyInput');
+    // globalHotkeyInput already declared above
 
     if (downloadDirInput && saveDirBtn) {
         fetch('/api/settings').then(r => r.json()).then(data => {
@@ -554,6 +544,18 @@ window.addEventListener('load', () => {
     if (clearCompletedBtn) {
         clearCompletedBtn.addEventListener('click', () => {
             fetch('/api/clear-completed', { method: 'POST', headers: apiClientHeaders }).catch(e => console.error(e));
+        });
+    }
+
+    if (globalHotkeyInput) {
+        globalHotkeyInput.addEventListener('change', async () => {
+            const hk = globalHotkeyInput.value.trim();
+            if (!hk) return;
+            try {
+                if (window.unigetAPI && window.unigetAPI.setHotkey) {
+                    await window.unigetAPI.setHotkey(hk);
+                }
+            } catch (e) {}
         });
     }
 
