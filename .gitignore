@@ -1,6 +1,7 @@
 node_modules
 downloads
 dist
+dist2
 out
 .env
 *.log

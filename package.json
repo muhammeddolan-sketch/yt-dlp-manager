@@ -41,8 +41,7 @@
           "arch": [
             "x64"
           ]
-        },
-        "portable"
+        }
       ],
       "icon": "public/icon.png"
     },
