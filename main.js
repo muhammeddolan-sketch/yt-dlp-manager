@@ -235,8 +235,10 @@ function createMainWindow() {
     }
 
     mainWindow = new BrowserWindow({
-        width: 750,
-        height: 550,
+        width: 1180,
+        height: 720,
+        minWidth: 860,
+        minHeight: 560,
         title: "UniGet",
         icon: path.join(__dirname, 'public', 'icon.png'),
         show: false,

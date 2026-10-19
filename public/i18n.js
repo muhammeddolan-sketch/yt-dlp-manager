@@ -55,7 +55,15 @@ const translations = {
         end_time: "Bitiş Zamanı",
         filter_placeholder: "İndirmelerde ara...",
         copy_link: "Bağlantıyı kopyala",
-        download_folder: "İndirme klasörü"
+        download_folder: "İndirme klasörü",
+        new_download: "Yeni İndirme",
+        library: "Kitaplık",
+        tools: "Araçlar",
+        export_list: "Listeyi Dışa Aktar",
+        videos: "video",
+        no_results: "Aramanızla eşleşen indirme yok.",
+        no_completed: "Henüz tamamlanmış indirme yok.",
+        no_active: "Şu anda indirilen bir video yok."
     },
     en: {
         app_title: "UniGet",
@@ -113,7 +121,15 @@ const translations = {
         end_time: "End Time",
         filter_placeholder: "Search downloads...",
         copy_link: "Copy link",
-        download_folder: "Download folder"
+        download_folder: "Download folder",
+        new_download: "New Download",
+        library: "Library",
+        tools: "Tools",
+        export_list: "Export List",
+        videos: "videos",
+        no_results: "No downloads match your search.",
+        no_completed: "No completed downloads yet.",
+        no_active: "No active downloads right now."
     },
     de: {
         app_title: "UniGet",
@@ -171,7 +187,15 @@ const translations = {
         end_time: "Endzeit",
         filter_placeholder: "Downloads durchsuchen...",
         copy_link: "Link kopieren",
-        download_folder: "Download-Ordner"
+        download_folder: "Download-Ordner",
+        new_download: "Neuer Download",
+        library: "Bibliothek",
+        tools: "Werkzeuge",
+        export_list: "Liste exportieren",
+        videos: "Videos",
+        no_results: "Keine Downloads passen zur Suche.",
+        no_completed: "Noch keine abgeschlossenen Downloads.",
+        no_active: "Derzeit keine aktiven Downloads."
     },
     fr: {
         app_title: "UniGet",
@@ -229,7 +253,15 @@ const translations = {
         end_time: "Heure de fin",
         filter_placeholder: "Rechercher des téléchargements...",
         copy_link: "Copier le lien",
-        download_folder: "Dossier de téléchargement"
+        download_folder: "Dossier de téléchargement",
+        new_download: "Nouveau téléchargement",
+        library: "Bibliothèque",
+        tools: "Outils",
+        export_list: "Exporter la liste",
+        videos: "vidéos",
+        no_results: "Aucun téléchargement ne correspond à votre recherche.",
+        no_completed: "Aucun téléchargement terminé pour le moment.",
+        no_active: "Aucun téléchargement actif pour le moment."
     },
     es: {
         app_title: "UniGet",
@@ -287,7 +319,15 @@ const translations = {
         end_time: "Hora de fin",
         filter_placeholder: "Buscar descargas...",
         copy_link: "Copiar enlace",
-        download_folder: "Carpeta de descargas"
+        download_folder: "Carpeta de descargas",
+        new_download: "Nueva descarga",
+        library: "Biblioteca",
+        tools: "Herramientas",
+        export_list: "Exportar lista",
+        videos: "videos",
+        no_results: "Ninguna descarga coincide con tu búsqueda.",
+        no_completed: "Aún no hay descargas completadas.",
+        no_active: "No hay descargas activas en este momento."
     }
 };
 

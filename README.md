@@ -1,13 +1,13 @@
-# UniGet - Ultimate Media Manager v1.8.4
+# UniGet - Ultimate Media Manager v1.8.5
 
-UniGet (formerly YT-DLM) is a premium, modern, and powerful graphical user interface (GUI) for `yt-dlp`. Designed with a **modern indigo-violet gradient aesthetic** over a high-performance foundation, it offers an experience that surpasses traditional download managers by combining advanced features with contemporary design.
+UniGet (formerly YT-DLM) is a premium, modern, and powerful graphical user interface (GUI) for `yt-dlp`. Designed with a **sidebar-driven, horizontal library layout** over a high-performance foundation, it offers an experience that surpasses traditional download managers by combining advanced features with contemporary design.
 
 ## Key Features
 
 - **Zero-Configuration**: Automatically downloads and manages `yt-dlp` on Windows. If FFmpeg is installed or bundled, UniGet uses it for higher-quality merges; otherwise it falls back to single-file progressive formats.
 - **One-Click Tool Updates**: The bundled `yt-dlp` version is shown in Settings and can be updated from the official GitHub release with one click.
 - **Self-Updating App**: Packaged builds check GitHub Releases automatically, download updates in the background, and let you install with one click.
-- **Premium UI**: A sleek, minimal, and modern interface with full **Dark & Light Mode** support.
+- **Premium UI**: A sleek, sidebar-driven layout with a horizontal video library, full **Dark & Light Mode** support, and live library counters.
 - **Turbo Multi-threaded Downloads**: Uses multi-connection techniques to saturate your bandwidth for maximum speed.
 - **Video Trimming (Partial Downloads)**: Only need a clip? Set a start and end time (HH:MM:SS) to download exactly what you need.
 - **Universal Web Extension**: Capture media from almost any site. Optimized for YouTube and Shorts.

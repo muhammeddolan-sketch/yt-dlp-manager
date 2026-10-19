@@ -9,61 +9,94 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="i18n.js?v=1.8.4"></script>
+    <script src="i18n.js?v=1.8.5"></script>
 </head>
 <body>
     <div class="app-container">
-        <nav class="icon-rail">
-            <img class="rail-logo" src="icon.png" alt="UniGet">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <img class="sidebar-logo" src="icon.png" alt="UniGet">
+                <div class="sidebar-brand-copy">
+                    <strong>UniGet</strong>
+                    <span>Media Manager</span>
+                </div>
+            </div>
 
-            <button class="nav-item active" data-view="all" type="button" title="Tümü" data-i18n-title="all">
-                <i class="fas fa-list"></i>
-            </button>
-            <button class="nav-item" data-view="downloading" type="button" title="İndiriliyor" data-i18n-title="downloading">
-                <i class="fas fa-download"></i>
-            </button>
-            <button class="nav-item" data-view="completed" type="button" title="Tamamlandı" data-i18n-title="completed">
-                <i class="fas fa-check-circle"></i>
-            </button>
-            <button class="nav-item" id="clearCompletedBtn" type="button" title="Temizle" data-i18n-title="clear">
-                <i class="fas fa-broom"></i>
+            <button id="newDownloadBtn" class="sidebar-primary" type="button">
+                <i class="fas fa-plus"></i>
+                <span data-i18n="new_download">Yeni İndirme</span>
             </button>
 
-            <div class="rail-spacer"></div>
+            <p class="sidebar-label" data-i18n="library">Kitaplık</p>
+            <nav class="sidebar-nav" aria-label="Library">
+                <button class="nav-item active" data-view="all" type="button" title="Tümü" data-i18n-title="all">
+                    <i class="fas fa-list"></i>
+                    <span data-i18n="all">Tümü</span>
+                    <span class="nav-count" id="countAll">0</span>
+                </button>
+                <button class="nav-item" data-view="downloading" type="button" title="İndiriliyor" data-i18n-title="downloading">
+                    <i class="fas fa-download"></i>
+                    <span data-i18n="downloading">İndiriliyor</span>
+                    <span class="nav-count" id="countDownloading">0</span>
+                </button>
+                <button class="nav-item" data-view="completed" type="button" title="Tamamlandı" data-i18n-title="completed">
+                    <i class="fas fa-check-circle"></i>
+                    <span data-i18n="completed">Tamamlandı</span>
+                    <span class="nav-count" id="countCompleted">0</span>
+                </button>
+            </nav>
 
-            <button id="donateBtn" class="tool-button donate-tool" type="button" title="Destek Ol" data-i18n-title="support">
-                <i class="fas fa-heart"></i>
-            </button>
-            <button id="themeToggleBtn" class="tool-button" type="button" title="Tema">
-                <i class="fas fa-moon"></i>
-            </button>
-            <button id="openSettingsBtn" class="tool-button" type="button" title="Ayarlar" data-i18n-title="settings">
-                <i class="fas fa-sliders-h"></i>
-            </button>
-            <button id="exportListBtn" class="tool-button" type="button" title="Listeyi Dışa Aktar">
-                <i class="fas fa-file-export"></i>
-            </button>
-        </nav>
+            <p class="sidebar-label" data-i18n="tools">Araçlar</p>
+            <div class="sidebar-actions">
+                <button id="openSetupBtn" class="sidebar-action" type="button" title="Eklenti Kurulumu">
+                    <i class="fas fa-puzzle-piece"></i>
+                    <span data-i18n="setup_guide">Eklenti Kurulumu</span>
+                </button>
+                <button id="openFolderGlobal" class="sidebar-action" type="button" title="Klasörü Aç" data-i18n-title="open_folder">
+                    <i class="fas fa-folder-open"></i>
+                    <span data-i18n="open_folder">Klasörü Aç</span>
+                </button>
+                <button id="exportListBtn" class="sidebar-action" type="button" title="Listeyi Dışa Aktar" data-i18n-title="export_list">
+                    <i class="fas fa-file-export"></i>
+                    <span data-i18n="export_list">Listeyi Dışa Aktar</span>
+                </button>
+                <button id="clearCompletedBtn" class="sidebar-action" type="button" title="Temizle" data-i18n-title="clear">
+                    <i class="fas fa-broom"></i>
+                    <span data-i18n="clear">Temizle</span>
+                </button>
+            </div>
+
+            <div class="sidebar-spacer"></div>
+
+            <div class="sidebar-bottom">
+                <button id="donateBtn" class="sidebar-icon-btn donate-tool" type="button" title="Destek Ol" data-i18n-title="support">
+                    <i class="fas fa-heart"></i>
+                </button>
+                <button id="themeToggleBtn" class="sidebar-icon-btn" type="button" title="Tema">
+                    <i class="fas fa-moon"></i>
+                </button>
+                <button id="openSettingsBtn" class="sidebar-icon-btn" type="button" title="Ayarlar" data-i18n-title="settings">
+                    <i class="fas fa-sliders-h"></i>
+                </button>
+            </div>
+            <span class="version sidebar-version">v1.8.5</span>
+        </aside>
 
         <main class="main-content">
             <header class="workspace-header">
                 <div class="hero-brand">
-                    <span class="hero-logo"><img src="icon.png" alt="UniGet"></span>
                     <div>
-                        <p class="section-label">UniGet</p>
+                        <p class="section-label" data-i18n="library">Kitaplık</p>
                         <h1 data-i18n="downloads_title">İndirmeler</h1>
                     </div>
                 </div>
                 <div class="header-actions">
-                    <button id="openSetupBtn" class="header-button" type="button">
-                        <i class="fas fa-puzzle-piece"></i>
-                        <span data-i18n="setup_guide">Eklenti Kurulumu</span>
-                    </button>
+                    <label class="header-search">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="filterInput" data-i18n="filter_placeholder" placeholder="İndirmelerde ara...">
+                    </label>
                     <button id="pinWindowBtn" class="btn-icon" type="button" title="Daima Üstte Kal">
                         <i class="fas fa-thumbtack"></i>
-                    </button>
-                    <button id="openFolderGlobal" class="btn-icon" type="button" title="Klasörü Aç" data-i18n-title="open_folder">
-                        <i class="fas fa-folder-open"></i>
                     </button>
                 </div>
             </header>
@@ -83,10 +116,6 @@
                         <input type="checkbox" id="isPlaylistCheck">
                         <span data-i18n="playlist">Çalma Listesi</span>
                     </label>
-                    <div class="list-filter">
-                        <i class="fas fa-search"></i>
-                        <input type="text" id="filterInput" data-i18n="filter_placeholder" placeholder="İndirmelerde ara...">
-                    </div>
                     <label class="switch-container">
                         <span class="switch-label">Hızlı İndir</span>
                         <input type="checkbox" id="quickDownloadCheck" class="switch-input">
@@ -95,16 +124,8 @@
                 </div>
             </section>
 
-            <div class="view-tabs">
-                <button class="nav-item active" data-view="all" type="button">
-                    <span data-i18n="all">Tümü</span>
-                </button>
-                <button class="nav-item" data-view="downloading" type="button">
-                    <span data-i18n="downloading">İndiriliyor</span>
-                </button>
-                <button class="nav-item" data-view="completed" type="button">
-                    <span data-i18n="completed">Tamamlandı</span>
-                </button>
+            <div class="library-bar">
+                <span id="librarySummary" class="library-summary">0 video</span>
             </div>
 
             <section class="download-list" id="downloadList">
@@ -520,7 +541,7 @@
             </div>
 
             <div class="settings-footer">
-                <span id="appVersion" class="version">v1.8.4</span>
+                <span id="appVersion" class="version">v1.8.5</span>
             </div>
         </div>
     </div>
@@ -614,6 +635,6 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script src="app.js?v=1.8.4"></script>
+    <script src="app.js?v=1.8.5"></script>
 </body>
 </html>

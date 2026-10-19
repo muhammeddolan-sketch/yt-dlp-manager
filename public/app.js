@@ -4,6 +4,11 @@ window.addEventListener('load', () => {
     const urlInput = document.getElementById('urlInput');
     const addBtn = document.getElementById('addBtn');
     const downloadList = document.getElementById('downloadList');
+    const newDownloadBtn = document.getElementById('newDownloadBtn');
+    const countAllEl = document.getElementById('countAll');
+    const countDownloadingEl = document.getElementById('countDownloading');
+    const countCompletedEl = document.getElementById('countCompleted');
+    const librarySummaryEl = document.getElementById('librarySummary');
     const infoModal = document.getElementById('infoModal');
     const closeModal = document.querySelector('.close-modal');
     const confirmDownload = document.getElementById('confirmDownload');
@@ -181,6 +186,7 @@ window.addEventListener('load', () => {
             document.getElementById(`dl-${dl.id}`)?.remove();
             if (downloadList && !downloadList.querySelector('.download-card')) renderList();
         }
+        refreshLibraryMeta();
     }
 
     async function refreshDownloads() {
@@ -656,11 +662,21 @@ window.addEventListener('load', () => {
     navItems.forEach(item => {
         item.addEventListener('click', () => {
             currentView = item.getAttribute('data-view');
-            // Icon rail and view tabs mirror the same view state
+            // Sidebar navigation mirrors the same view state
             navItems.forEach(nav => nav.classList.toggle('active', nav.getAttribute('data-view') === currentView));
             renderList();
         });
     });
+
+    if (newDownloadBtn) {
+        newDownloadBtn.addEventListener('click', () => {
+            playSound('open');
+            if (urlInput) {
+                urlInput.focus();
+                urlInput.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+        });
+    }
 
     // Global Actions
     if (openFolderGlobal) {
@@ -948,13 +964,14 @@ window.addEventListener('load', () => {
 
         socket.on('download-cancelled', (data) => {
             delete activeDownloads[data.id];
+            refreshLibraryMeta();
             const card = document.getElementById(`dl-${data.id}`);
             if (card) {
                 card.style.opacity = '0';
                 setTimeout(() => {
                     card.remove();
                     if (downloadList && !downloadList.querySelector('.download-card')) {
-                        downloadList.innerHTML = `<div class="empty-state"><i class="fas fa-cloud-download-alt"></i><p>${typeof t === 'function' ? t('no_downloads') : 'No downloads yet.'}</p></div>`;
+                        downloadList.innerHTML = `<div class="empty-state"><i class="fas fa-cloud-download-alt"></i><p>${typeof t === 'function' ? t(emptyStateKey()) : 'No downloads yet.'}</p></div>`;
                     }
                 }, 200);
             }
@@ -1056,11 +1073,13 @@ window.addEventListener('load', () => {
         
         dlArray = dlArray.filter(downloadMatchesCurrentView);
 
+        refreshLibraryMeta();
+
         if (dlArray.length === 0) {
             downloadList.innerHTML = `
                 <div class="empty-state">
                     <i class="fas fa-cloud-download-alt"></i>
-                    <p>${typeof t === 'function' ? t('no_downloads') : 'No downloads yet.'}</p>
+                    <p>${typeof t === 'function' ? t(emptyStateKey()) : 'No downloads yet.'}</p>
                 </div>
             `;
             return;
@@ -1086,6 +1105,31 @@ window.addEventListener('load', () => {
             return status !== 'completed' && !status.startsWith('error:') && status !== 'failed';
         }
         return true;
+    }
+
+    function refreshLibraryMeta() {
+        const downloads = Object.values(activeDownloads);
+        const total = downloads.length;
+        const completed = downloads.filter((dl) => String(dl?.status || '') === 'completed').length;
+        const downloading = downloads.filter((dl) => {
+            const status = String(dl?.status || '');
+            return status !== 'completed' && !status.startsWith('error:') && status !== 'failed';
+        }).length;
+        if (countAllEl) countAllEl.textContent = total;
+        if (countDownloadingEl) countDownloadingEl.textContent = downloading;
+        if (countCompletedEl) countCompletedEl.textContent = completed;
+        if (librarySummaryEl) {
+            const visible = downloads.filter(downloadMatchesCurrentView).length;
+            const unit = typeof t === 'function' ? t('videos') : 'videos';
+            librarySummaryEl.textContent = searchQuery ? `${visible} / ${total} ${unit}` : `${visible} ${unit}`;
+        }
+    }
+
+    function emptyStateKey() {
+        if (searchQuery) return 'no_results';
+        if (currentView === 'completed') return 'no_completed';
+        if (currentView === 'downloading') return 'no_active';
+        return 'no_downloads';
     }
 
     function updateCard(dl, cardEl) {

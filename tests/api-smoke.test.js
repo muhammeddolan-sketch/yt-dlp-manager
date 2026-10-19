@@ -195,6 +195,20 @@ async function statusFor(url, options) {
         assert.ok(styleSrc.includes('body.modal-open'), 'style.css modal açıkken sayfa kaydırmasını kilitlemiyor');
         assert.ok(styleSrc.includes('overscroll-behavior: contain'), 'style.css kaydırma zincirlemesini engellemiyor');
 
+        // Horizontal layout: labeled left sidebar + two-column video library.
+        assert.ok(indexHtml.includes('class="sidebar"'), 'sol sütun (sidebar) eksik');
+        for (const id of ['newDownloadBtn', 'countAll', 'countDownloading', 'countCompleted', 'librarySummary', 'filterInput']) {
+            assert.ok(indexHtml.includes(`id="${id}"`), `yeni yerleşim kontrolü #${id} eksik`);
+        }
+        assert.ok(appSrc.includes('refreshLibraryMeta'), 'app.js kitaplık sayaçlarını güncellemiyor');
+        assert.ok(appSrc.includes('emptyStateKey'), 'app.js filtreye özel boş durum mesajı üretmiyor');
+        assert.ok(styleSrc.includes('grid-template-columns: 252px minmax(0, 1fr)'), 'style.css sol sütun genişliğini tanımlamıyor');
+        assert.ok(styleSrc.includes('grid-template-columns: repeat(2, minmax(0, 1fr))'), 'style.css yatay video ızgarasını tanımlamıyor');
+        const i18nSrc = fs.readFileSync(path.join(rootDir, 'public', 'i18n.js'), 'utf8');
+        for (const key of ['new_download', 'library', 'tools', 'export_list', 'videos', 'no_completed', 'no_active', 'no_results']) {
+            assert.ok(i18nSrc.includes(`${key}:`), `i18n "${key}" anahtarı eksik`);
+        }
+
         const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, 'web-extension', 'manifest.json'), 'utf8'));
         assert.strictEqual(manifest.version, appVersion);
         for (const prefix of ['UniGet-Extension-v', 'UniGet-Firefox-Extension-v']) {
