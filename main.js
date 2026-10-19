@@ -308,15 +308,17 @@ function waitForServer(url, retries = 30, delayMs = 200) {
 }
 
 async function loadMainWindowWhenServerReady() {
+    // Version-tagged URL bypasses stale HTTP-cached documents after an update.
+    const appUrl = `http://127.0.0.1:3000/?v=${encodeURIComponent(app.getVersion())}`;
     try {
         await waitForServer('http://127.0.0.1:3000');
         if (mainWindow && !mainWindow.isDestroyed()) {
-            await mainWindow.loadURL('http://127.0.0.1:3000');
+            await mainWindow.loadURL(appUrl);
         }
     } catch (error) {
         dialog.showErrorBox('Server Error', 'UniGet backend server failed to start. Please try restarting the application.');
         if (mainWindow && !mainWindow.isDestroyed()) {
-            await mainWindow.loadURL('http://127.0.0.1:3000');
+            await mainWindow.loadURL(appUrl);
         }
     }
 }

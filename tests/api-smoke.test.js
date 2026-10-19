@@ -155,6 +155,25 @@ async function statusFor(url, options) {
         assert.strictEqual(diskEntry.status, 'completed');
         assert.strictEqual(diskEntry.title, 'Existing Video');
 
+        // Cache safety: a stale cached UI must never be able to survive an update.
+        const indexHtml = fs.readFileSync(path.join(rootDir, 'public', 'index.html'), 'utf8');
+        for (const asset of ['app.js', 'i18n.js']) {
+            assert.ok(
+                indexHtml.includes(`${asset}?v=${appVersion}`),
+                `index.html ${asset} cache-buster sürümü package.json (${appVersion}) ile eşleşmiyor`
+            );
+        }
+        const indexRes = await fetch(`${baseUrl}/`);
+        assert.strictEqual(indexRes.status, 200);
+        assert.ok((indexRes.headers.get('cache-control') || '').includes('no-cache'), 'index.html no-cache değil');
+        await indexRes.text();
+        const appJsRes = await fetch(`${baseUrl}/app.js?v=${appVersion}`);
+        assert.strictEqual(appJsRes.status, 200);
+        assert.ok((appJsRes.headers.get('cache-control') || '').includes('no-cache'), 'app.js no-cache değil');
+        await appJsRes.text();
+        const mainSrcForCache = fs.readFileSync(path.join(rootDir, 'main.js'), 'utf8');
+        assert.ok(mainSrcForCache.includes('?v=${encodeURIComponent(app.getVersion())}'), 'main.js sürüm etiketli URL yüklemiyor');
+
         const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, 'web-extension', 'manifest.json'), 'utf8'));
         assert.strictEqual(manifest.version, appVersion);
         for (const prefix of ['UniGet-Extension-v', 'UniGet-Firefox-Extension-v']) {

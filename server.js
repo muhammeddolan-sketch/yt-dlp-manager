@@ -123,11 +123,17 @@ app.use('/api', (req, res, next) => {
     }
     next();
 });
-// Static assets with long cache (css, js, images don't change between restarts)
+// Static assets: HTML/JS/CSS must revalidate so an app update never reuses stale UI code.
+// Images/fonts keep the long cache.
 app.use(express.static(path.join(__dirname, 'public'), {
     maxAge: '1h',
     etag: true,
-    lastModified: true
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+        if (/\.(?:html|js|css)$/i.test(filePath)) {
+            res.setHeader('Cache-Control', 'no-cache');
+        }
+    }
 }));
 
 app.get('/extension/chrome-package', (req, res) => {
