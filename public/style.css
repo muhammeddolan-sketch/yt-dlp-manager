@@ -27,9 +27,9 @@
     --bg-glow-2: oklch(94% 0.03 205 / 0.42);
     --focus-ring: color-mix(in oklab, var(--accent) 26%, transparent);
     --overlay: rgba(30, 36, 30, 0.4);
-    --shadow-card: 0 10px 28px -18px oklch(45% 0.05 150 / 0.45), 0 1px 4px oklch(0% 0 0 / 0.04);
-    --shadow-tab: 0 4px 12px -6px oklch(50% 0.09 152 / 0.55);
-    --shadow-pop: 0 30px 70px -20px rgba(30, 40, 30, 0.35);
+    --shadow-card: 0 1px 4px oklch(0% 0 0 / 0.06);
+    --shadow-tab: 0 1px 3px oklch(0% 0 0 / 0.08);
+    --shadow-pop: 0 16px 44px -18px rgba(30, 40, 30, 0.5);
     --scrollbar-thumb: color-mix(in srgb, var(--border-strong) 55%, transparent);
     --scrollbar-thumb-hover: color-mix(in srgb, var(--text-dim) 55%, transparent);
     --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
@@ -63,8 +63,9 @@
     --bg-glow-1: oklch(26% 0.03 152 / 0.45);
     --bg-glow-2: oklch(25% 0.028 205 / 0.4);
     --overlay: rgba(8, 10, 9, 0.55);
-    --shadow-card: 0 10px 28px -18px oklch(0% 0 0 / 0.55), 0 1px 4px rgba(0, 0, 0, 0.18);
-    --shadow-pop: 0 30px 70px -20px rgba(0, 0, 0, 0.6);
+    --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.25);
+    --shadow-tab: 0 1px 3px rgba(0, 0, 0, 0.25);
+    --shadow-pop: 0 16px 44px -18px rgba(0, 0, 0, 0.7);
     --scrollbar-thumb: color-mix(in srgb, var(--border-strong) 70%, transparent);
     --scrollbar-thumb-hover: color-mix(in srgb, var(--text-dim) 60%, transparent);
 }
@@ -95,10 +96,7 @@ body {
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-    background:
-        radial-gradient(circle at 15% 10%, var(--bg-glow-1), transparent 45%),
-        radial-gradient(circle at 85% 90%, var(--bg-glow-2), transparent 50%),
-        var(--bg-main);
+    background: var(--bg-main);
     color: var(--text-main);
     font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: 14px;
@@ -131,7 +129,7 @@ button {
 *::-webkit-scrollbar-thumb {
     min-height: 44px;
     border: 3px solid transparent;
-    border-radius: 999px;
+    border-radius: 3px;
     background: var(--scrollbar-thumb);
     background-clip: padding-box;
 }
@@ -189,7 +187,7 @@ button {
     width: 40px;
     height: 40px;
     padding: 3px;
-    border-radius: 11px;
+    border-radius: 5px;
     background: var(--accent-soft);
     flex: 0 0 auto;
 }
@@ -227,7 +225,7 @@ button {
     height: 28px;
     margin-left: auto;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 4px;
     background: transparent;
     color: var(--text-dim);
     font-size: 11px;
@@ -255,12 +253,11 @@ button {
     height: 44px;
     margin-bottom: 4px;
     border: 0;
-    border-radius: 11px;
+    border-radius: 5px;
     background: var(--accent);
     color: var(--accent-text);
     font-size: 13.5px;
     font-weight: 700;
-    box-shadow: 0 10px 22px -12px oklch(45% 0.1 152 / 0.55);
 }
 
 .sidebar-primary:hover,
@@ -295,7 +292,7 @@ button {
     min-height: 38px;
     padding: 0 10px;
     border: 1px solid transparent;
-    border-radius: 9px;
+    border-radius: 4px;
     background: transparent;
     color: var(--text-main);
     font-size: 13px;
@@ -335,7 +332,7 @@ button {
     min-width: 22px;
     height: 20px;
     padding: 0 6px;
-    border-radius: 999px;
+    border-radius: 3px;
     background: var(--accent-soft);
     color: var(--accent);
     font-family: var(--font-mono);
@@ -375,7 +372,7 @@ button {
     width: 38px;
     height: 38px;
     border: 1px solid var(--border);
-    border-radius: 9px;
+    border-radius: 4px;
     background: transparent;
     color: var(--text-dim);
     font-size: 14px;
@@ -502,22 +499,9 @@ button {
     overflow: hidden;
 }
 
-.main-content > :not(.petal-decor) {
+.main-content > * {
     position: relative;
     z-index: 1;
-}
-
-.petal-decor {
-    position: absolute;
-    right: -60px;
-    bottom: -60px;
-    width: 460px;
-    height: 460px;
-    opacity: 0.35;
-    pointer-events: none;
-    z-index: 0;
-    -webkit-mask-image: radial-gradient(circle at 65% 65%, black 35%, transparent 72%);
-    mask-image: radial-gradient(circle at 65% 65%, black 35%, transparent 72%);
 }
 
 .section-label {
@@ -536,7 +520,7 @@ button {
     align-items: center;
     justify-content: center;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 4px;
     background: var(--panel-bg);
     color: var(--text-dim);
 }
@@ -555,7 +539,7 @@ input[type="number"] {
     min-height: 36px;
     padding: 6px 10px;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 4px;
     background: var(--panel-bg);
     color: var(--text-main);
     outline: 0;
@@ -574,7 +558,7 @@ input:focus {
     gap: 12px;
     padding: 14px;
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: 6px;
     background: var(--card-bg);
     box-shadow: var(--shadow-card);
 }
@@ -592,7 +576,7 @@ input:focus {
     height: 46px;
     padding: 0 14px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 5px;
     background: var(--panel-bg);
 }
 
@@ -623,19 +607,17 @@ input:focus {
 .btn-primary {
     min-height: 42px;
     border: 0;
-    border-radius: 10px;
+    border-radius: 5px;
     background: var(--accent);
     color: var(--accent-text);
     font-weight: 700;
     font-size: 14px;
-    box-shadow: 0 8px 20px -10px oklch(45% 0.1 152 / 0.55);
 }
 
 .search-bar > button {
     width: 46px;
     height: 46px;
     font-size: 16px;
-    box-shadow: 0 6px 16px -6px oklch(45% 0.1 152 / 0.5);
 }
 
 .search-bar > button:hover,
@@ -662,7 +644,7 @@ input:focus {
     gap: 8px;
     padding: 0 12px;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 4px;
     background: var(--panel-bg);
     color: var(--text-dim);
     flex: 1 1 160px;
@@ -713,9 +695,9 @@ input:focus {
 
 .switch-slider {
     position: relative;
-    width: 34px;
-    height: 19px;
-    border-radius: 999px;
+    width: 32px;
+    height: 16px;
+    border-radius: 3px;
     background: var(--border-strong);
     flex: 0 0 auto;
 }
@@ -723,11 +705,11 @@ input:focus {
 .switch-slider::before {
     content: "";
     position: absolute;
-    top: 2.5px;
-    left: 3px;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
     background: #ffffff;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
@@ -737,7 +719,7 @@ input:focus {
 }
 
 .switch-input:checked + .switch-slider::before {
-    left: 17px;
+    left: 18px;
 }
 
 .switch-label {
@@ -762,8 +744,8 @@ input:focus {
     margin-top: 10px;
     padding: 12px 14px;
     border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--border));
-    border-radius: 12px;
-    background: linear-gradient(135deg, color-mix(in srgb, var(--warning) 11%, transparent), var(--panel-bg));
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--warning) 10%, var(--panel-bg));
     animation: repair-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.3);
 }
 
@@ -821,7 +803,7 @@ input:focus {
 
 .repair-banner.success {
     border-color: color-mix(in srgb, var(--success) 45%, var(--border));
-    background: linear-gradient(135deg, color-mix(in srgb, var(--success) 10%, transparent), var(--panel-bg));
+    background: color-mix(in srgb, var(--success) 10%, var(--panel-bg));
 }
 
 .repair-banner.success .repair-banner-icon {
@@ -866,7 +848,7 @@ input:focus {
     margin-left: auto;
     padding: 0 12px;
     border: 1px solid var(--border);
-    border-radius: 9px;
+    border-radius: 4px;
     background: var(--card-bg);
     color: var(--text-dim);
 }
@@ -920,7 +902,7 @@ input:focus {
     padding: 10px 12px;
     border: 1px solid var(--border);
     border-left: 3px solid transparent;
-    border-radius: 12px;
+    border-radius: 6px;
     background: var(--card-bg);
     contain: content;
 }
@@ -941,8 +923,8 @@ input:focus {
     align-items: center;
     justify-content: center;
     border: 1px solid var(--border);
-    border-radius: 9px;
-    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent), var(--panel-bg));
+    border-radius: 4px;
+    background: var(--panel-bg);
     color: var(--text-dim);
     font-size: 17px;
 }
@@ -953,7 +935,7 @@ input:focus {
     height: 60px;
     object-fit: cover;
     border: 1px solid var(--border);
-    border-radius: 9px;
+    border-radius: 4px;
     background: var(--panel-bg);
 }
 
@@ -975,16 +957,16 @@ input:focus {
 }
 
 .progress-container {
-    height: 4px;
+    height: 5px;
     overflow: hidden;
-    border-radius: 999px;
+    border-radius: 0;
     background: var(--panel-bg);
 }
 
 .progress-bar {
     height: 100%;
     width: 0;
-    border-radius: 999px;
+    border-radius: 0;
     background: var(--accent);
 }
 
@@ -1027,7 +1009,7 @@ input:focus {
 .card-actions .btn-icon {
     min-width: 28px;
     height: 28px;
-    border-radius: 7px;
+    border-radius: 4px;
     font-size: 11px;
 }
 
@@ -1041,7 +1023,7 @@ input:focus {
 
 .download-card.completed .card-icon {
     color: var(--success);
-    background: linear-gradient(135deg, color-mix(in srgb, var(--success) 13%, transparent), var(--panel-bg));
+    background: var(--panel-bg);
 }
 
 .download-card.completed .progress-bar {
@@ -1062,7 +1044,7 @@ input:focus {
 
 .download-card.failed .card-icon {
     color: var(--danger);
-    background: linear-gradient(135deg, color-mix(in srgb, var(--danger) 13%, transparent), var(--panel-bg));
+    background: var(--panel-bg);
 }
 
 .download-card.failed .progress-bar {
@@ -1083,7 +1065,7 @@ input:focus {
 
 .download-card.paused .card-icon {
     color: var(--warning);
-    background: linear-gradient(135deg, color-mix(in srgb, var(--warning) 13%, transparent), var(--panel-bg));
+    background: var(--panel-bg);
 }
 
 .download-card.paused .progress-bar {
@@ -1133,7 +1115,7 @@ body.modal-open {
     margin: 5vh auto;
     padding: 22px;
     border: 1px solid var(--border);
-    border-radius: 16px;
+    border-radius: 6px;
     background: var(--card-bg);
     box-shadow: var(--shadow-pop);
 }
@@ -1153,7 +1135,7 @@ body.modal-open {
     gap: 4px;
     padding: 4px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 6px;
     background: var(--panel-bg);
 }
 
@@ -1166,7 +1148,7 @@ body.modal-open {
     min-height: 36px;
     padding: 8px 12px;
     border: 0;
-    border-radius: 8px;
+    border-radius: 4px;
     background: transparent;
     color: var(--text-dim);
     font-size: 12.5px;
@@ -1228,7 +1210,7 @@ body.modal-open {
     width: 30px;
     height: 30px;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 4px;
     background: var(--panel-bg);
     color: var(--text-dim);
     font-size: 16px;
@@ -1270,7 +1252,7 @@ body.modal-open {
     align-items: center;
     justify-content: center;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 5px;
     background: var(--panel-bg);
     color: var(--accent);
 }
@@ -1287,7 +1269,7 @@ body.modal-open {
     height: 84px;
     object-fit: cover;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 4px;
     background: var(--panel-bg);
 }
 
@@ -1315,7 +1297,7 @@ body.modal-open {
     gap: 12px;
     padding: 14px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 6px;
     background: var(--panel-bg);
 }
 
@@ -1341,7 +1323,7 @@ body.modal-open {
     align-items: center;
     padding: 10px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 5px;
     background: var(--card-bg);
     color: var(--text-main);
     text-align: left;
@@ -1390,7 +1372,7 @@ body.modal-open {
     align-items: center;
     justify-content: center;
     border: 1px solid var(--border);
-    border-radius: 9px;
+    border-radius: 4px;
     background: var(--card-bg);
     color: var(--accent);
     font-size: 14px;
@@ -1447,7 +1429,7 @@ body.modal-open {
     gap: 10px;
     padding: 10px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 5px;
     background: var(--card-bg);
 }
 
@@ -1517,7 +1499,7 @@ body.modal-open {
     min-height: 34px;
     padding: 0 14px;
     font-size: 12.5px;
-    border-radius: 8px;
+    border-radius: 4px;
 }
 
 .secondary-button,
@@ -1529,7 +1511,7 @@ body.modal-open {
     gap: 8px;
     padding: 7px 12px;
     border: 1px solid var(--border);
-    border-radius: 9px;
+    border-radius: 4px;
     background: var(--card-bg);
     color: var(--text-main);
     font-weight: 700;
@@ -1562,7 +1544,7 @@ body.modal-open {
     gap: 4px;
     padding: 11px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 5px;
     background: var(--panel-bg);
 }
 
@@ -1582,7 +1564,7 @@ body.modal-open {
     height: 150px;
     padding: 6px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 5px;
     background: var(--panel-bg);
 }
 
@@ -1605,7 +1587,7 @@ body.modal-open {
     gap: 8px;
     padding: 10px 12px;
     border: 1px solid var(--border);
-    border-radius: 9px;
+    border-radius: 4px;
     background: var(--panel-bg);
     font-size: 12px;
     overflow-wrap: anywhere;
@@ -1643,7 +1625,7 @@ body.modal-open {
     margin-top: 10px;
     padding: 10px 12px;
     border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--border));
-    border-radius: 10px;
+    border-radius: 5px;
     background: color-mix(in srgb, var(--warning) 7%, var(--panel-bg));
 }
 
@@ -1694,7 +1676,7 @@ body.modal-open {
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: 9px;
+    border-radius: 4px;
     background: var(--accent);
     color: var(--accent-text);
     font-weight: 800;
@@ -1729,7 +1711,7 @@ body.modal-open {
     flex: 0 0 auto;
     min-height: 42px;
     padding: 0 16px;
-    border-radius: 10px;
+    border-radius: 5px;
     background: var(--panel-bg);
     font-size: 13.5px;
 }
@@ -1745,7 +1727,7 @@ body.modal-open {
     gap: 6px;
     padding: 13px;
     border: 1px solid var(--border);
-    border-radius: 11px;
+    border-radius: 5px;
     background: var(--panel-bg);
 }
 
