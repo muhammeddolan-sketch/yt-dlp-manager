@@ -2,7 +2,7 @@ const express = require('express');
 const compression = require('compression');
 const http = require('http');
 const { Server } = require('socket.io');
-const { spawn, exec } = require('child_process');
+const { spawn, exec, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -190,6 +190,25 @@ function copyExtensionFolder(src, dest) {
     }
 }
 
+// A stale version is the usual reason to re-copy, but a deleted or
+// truncated file would also break the sideloaded extension silently.
+function extensionFolderNeedsSync(src, dest) {
+    try {
+        for (const name of fs.readdirSync(src)) {
+            const from = path.join(src, name);
+            let stat;
+            try { stat = fs.statSync(from); } catch { continue; }
+            if (!stat.isFile()) continue;
+            const to = path.join(dest, name);
+            if (!fs.existsSync(to)) return true;
+            if (fs.statSync(to).size !== stat.size) return true;
+        }
+    } catch {
+        return true;
+    }
+    return false;
+}
+
 let extensionSyncState = { installedVersion: null, latestVersion: null, dir: null, syncedAt: 0 };
 function syncExtensionFolder(force = false) {
     const source = findExtensionSourceDir();
@@ -201,7 +220,7 @@ function syncExtensionFolder(force = false) {
     const latestVersion = readExtensionVersion(source);
     const installedVersion = readExtensionVersion(dir);
     let copied = false;
-    if (force || !installedVersion || installedVersion !== latestVersion) {
+    if (force || !installedVersion || installedVersion !== latestVersion || extensionFolderNeedsSync(source, dir)) {
         try {
             copyExtensionFolder(source, dir);
             copied = true;
@@ -238,11 +257,11 @@ app.post('/api/extension/open-folder', (req, res) => {
     try {
         fs.mkdirSync(dir, { recursive: true });
         if (process.platform === 'win32') {
-            exec(`explorer.exe "${dir}"`);
+            execFile('explorer.exe', [dir]);
         } else if (process.platform === 'darwin') {
-            exec(`open "${dir}"`);
+            execFile('open', [dir]);
         } else {
-            exec(`xdg-open "${dir}"`);
+            execFile('xdg-open', [dir]);
         }
         res.json({ ok: true, dir });
     } catch (e) {

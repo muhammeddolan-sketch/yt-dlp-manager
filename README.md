@@ -1,4 +1,4 @@
-# UniGet - Ultimate Media Manager v1.8.8
+# UniGet - Ultimate Media Manager v1.8.9
 
 UniGet (formerly YT-DLM) is a premium, modern, and powerful graphical user interface (GUI) for `yt-dlp`. Designed with a **sidebar-driven, horizontal library layout** over a high-performance foundation, it offers an experience that surpasses traditional download managers by combining advanced features with contemporary design.
 
@@ -47,7 +47,10 @@ Kurulu uygulamalar `electron-updater` ile GitHub Releases üzerinden kendini gü
 > **Önemli:** Sürüm yayınlarken `electron-builder`'ın ürettiği `latest.yml` (ve `.blockmap`) mutlaka GitHub Release varlıklarına yüklenmelidir. `latest.yml` olmadan otomatik güncelleme sessizce başarısız olur. Bunu garanti etmek için `GH_TOKEN` ayarlıyken `npm run dist:publish` kullanın.
 
 ## Browser Extension
-Load the latest `UniGet-Extension-v<version>.zip` (unpacked) into your Chromium-based browser (Brave, Chrome, Edge) via "Load unpacked". For Firefox use `UniGet-Firefox-Extension-v<version>.zip`. The extension connects to the local server to send downloads instantly.
+
+UniGet keeps a ready-to-load copy of the extension in `%APPDATA%\uniget\extension` (Windows) or `~/.config/uniget/extension` (macOS/Linux). Click **Klasörü Aç** in the setup panel and load that folder once via `chrome://extensions` → Developer mode → Load unpacked. On every UniGet update the files in that folder are refreshed automatically; reload the extension (`chrome://extensions` → Reload) or restart the browser to pick up the new version. The setup panel shows the installed version and warns when a reload is needed.
+
+Alternatively, load the latest `UniGet-Extension-v<version>.zip` (unpacked) into your Chromium-based browser (Brave, Chrome, Edge) via "Load unpacked". For Firefox use `UniGet-Firefox-Extension-v<version>.zip`. The extension connects to the local server to send downloads instantly.
 
 ## Security Notes
 
