@@ -174,6 +174,27 @@ async function statusFor(url, options) {
         const mainSrcForCache = fs.readFileSync(path.join(rootDir, 'main.js'), 'utf8');
         assert.ok(mainSrcForCache.includes('?v=${encodeURIComponent(app.getVersion())}'), 'main.js sürüm etiketli URL yüklemiyor');
 
+        // Settings dialog structure: categorized tabs, scrollable body, scroll lock.
+        const appSrc = fs.readFileSync(path.join(rootDir, 'public', 'app.js'), 'utf8');
+        for (const panel of ['general', 'downloads', 'connection', 'tools']) {
+            assert.ok(indexHtml.includes(`data-settings-panel="${panel}"`), `ayarlar "${panel}" paneli eksik`);
+        }
+        for (const id of [
+            'langSelect', 'autostartCheck', 'accentColorInput', 'globalHotkeyInput',
+            'downloadDirInput', 'selectDirBtn', 'saveDirBtn', 'powerModeSelect',
+            'rateLimitInput', 'maxConcurrentInput', 'historyRetentionInput', 'smartRetryCheck',
+            'outputTemplateInput', 'postDownloadCommandInput', 'cookiesBrowserSelect',
+            'useBrowserCookiesCheck', 'checkUpdatesBtn', 'updateStatus', 'installUpdateBtn',
+            'toolStatus', 'updateYtDlpBtn', 'installFfmpegBtn'
+        ]) {
+            assert.ok(indexHtml.includes(`id="${id}"`), `ayarlar kontrolü #${id} eksik`);
+        }
+        assert.ok(appSrc.includes('activateSettingsTab'), 'app.js ayar sekmelerini yönetmiyor');
+        assert.ok(appSrc.includes('syncModalScrollLock'), 'app.js modal açıkken arka plan kaydırmasını kilitlemiyor');
+        const styleSrc = fs.readFileSync(path.join(rootDir, 'public', 'style.css'), 'utf8');
+        assert.ok(styleSrc.includes('body.modal-open'), 'style.css modal açıkken sayfa kaydırmasını kilitlemiyor');
+        assert.ok(styleSrc.includes('overscroll-behavior: contain'), 'style.css kaydırma zincirlemesini engellemiyor');
+
         const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, 'web-extension', 'manifest.json'), 'utf8'));
         assert.strictEqual(manifest.version, appVersion);
         for (const prefix of ['UniGet-Extension-v', 'UniGet-Firefox-Extension-v']) {

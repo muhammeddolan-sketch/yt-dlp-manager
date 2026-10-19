@@ -439,17 +439,26 @@ window.addEventListener('load', () => {
         ? window.unigetAPI
         : null;
 
+    function friendlyUpdateError(message) {
+        const text = String(message || '').replace(/\s+/g, ' ').trim();
+        if (!text) return 'Bilinmeyen hata';
+        if (/latest\.yml/i.test(text) || /\b404\b/.test(text)) {
+            return 'Sunucuda güncelleme bilgisi (latest.yml) bulunamadı. Lütfen daha sonra tekrar deneyin veya yeni sürümü manuel yükleyin.';
+        }
+        return text.length > 220 ? `${text.slice(0, 220)}…` : text;
+    }
+
     function renderUpdateState(state) {
         if (!updateStatus || !state) return;
         const version = state.latestVersion ? `v${state.latestVersion}` : '';
         const messages = {
-            checking: 'Guncelleme kontrol ediliyor...',
-            available: version ? `Yeni surum bulundu: ${version} (indiriliyor...)` : 'Yeni surum bulundu, indiriliyor...',
-            downloading: `Guncelleme indiriliyor: %${state.percent || 0}`,
-            downloaded: version ? `Guncelleme hazir: ${version} - yeniden baslatip kurun.` : 'Guncelleme hazir - yeniden baslatip kurun.',
-            'up-to-date': version ? `Guncel surumdesin: ${version}` : 'Guncel surumdesin.',
-            disabled: 'Guncelleme yalnizca kurulu uygulamada kullanilabilir.',
-            error: `Guncelleme hatasi: ${state.error || 'bilinmeyen hata'}`
+            checking: 'Güncelleme kontrol ediliyor...',
+            available: version ? `Yeni sürüm bulundu: ${version} (indiriliyor...)` : 'Yeni sürüm bulundu, indiriliyor...',
+            downloading: `Güncelleme indiriliyor: %${state.percent || 0}`,
+            downloaded: version ? `Güncelleme hazır: ${version} - yeniden başlatıp kurun.` : 'Güncelleme hazır - yeniden başlatıp kurun.',
+            'up-to-date': version ? `Güncel sürümdesiniz: ${version}` : 'Güncel sürümdesiniz.',
+            disabled: 'Güncelleme yalnızca kurulu uygulamada kullanılabilir.',
+            error: `Güncelleme hatası: ${friendlyUpdateError(state.error)}`
         };
         if (messages[state.status]) updateStatus.textContent = messages[state.status];
         if (installUpdateBtn) installUpdateBtn.hidden = state.status !== 'downloaded';
@@ -463,7 +472,7 @@ window.addEventListener('load', () => {
     if (checkUpdatesBtn) {
         checkUpdatesBtn.addEventListener('click', async () => {
             checkUpdatesBtn.disabled = true;
-            if (updateStatus) updateStatus.textContent = 'Guncelleme kontrol ediliyor...';
+            if (updateStatus) updateStatus.textContent = 'Güncelleme kontrol ediliyor...';
             try {
                 if (updateBridge) {
                     const state = await updateBridge.checkForUpdates();
@@ -471,18 +480,18 @@ window.addEventListener('load', () => {
                 } else {
                     const res = await fetch('/api/update-check', { headers: apiClientHeaders });
                     const data = await res.json();
-                    if (!res.ok || data.error) throw new Error(data.error || 'Guncelleme kontrolu basarisiz');
+                    if (!res.ok || data.error) throw new Error(data.error || 'Güncelleme kontrolü başarısız');
                     if (data.hasUpdate) {
-                        if (updateStatus) updateStatus.textContent = `Yeni surum var: v${data.latestVersion}`;
+                        if (updateStatus) updateStatus.textContent = `Yeni sürüm var: v${data.latestVersion}`;
                         openExternalUrl(data.url);
                     } else if (updateStatus) {
-                        updateStatus.textContent = `Guncel surumdesin: v${data.currentVersion}`;
+                        updateStatus.textContent = `Güncel sürümdesiniz: v${data.currentVersion}`;
                     }
                 }
                 playSound('success');
             } catch (e) {
                 playSound('error');
-                if (updateStatus) updateStatus.textContent = `Guncelleme kontrolu basarisiz: ${e.message}`;
+                if (updateStatus) updateStatus.textContent = `Güncelleme kontrolü başarısız: ${friendlyUpdateError(e.message)}`;
             } finally {
                 checkUpdatesBtn.disabled = false;
             }
@@ -493,12 +502,12 @@ window.addEventListener('load', () => {
         installUpdateBtn.addEventListener('click', async () => {
             installUpdateBtn.disabled = true;
             try {
-                if (!updateBridge) throw new Error('Kurulum yalnizca masaustu uygulamada kullanilabilir');
+                if (!updateBridge) throw new Error('Kurulum yalnızca masaüstü uygulamada kullanılabilir');
                 const result = await updateBridge.installUpdate();
-                if (result && result.success === false) throw new Error(result.error || 'Kurulum baslatilamadi');
+                if (result && result.success === false) throw new Error(result.error || 'Kurulum başlatılamadı');
             } catch (e) {
                 playSound('error');
-                if (updateStatus) updateStatus.textContent = `Kurulum baslatilamadi: ${e.message}`;
+                if (updateStatus) updateStatus.textContent = `Kurulum başlatılamadı: ${friendlyUpdateError(e.message)}`;
             } finally {
                 installUpdateBtn.disabled = false;
             }
@@ -564,6 +573,42 @@ window.addEventListener('load', () => {
             settingsModal.style.display = 'none';
         });
     }
+
+    // Settings categories
+    const settingsTabs = Array.from(document.querySelectorAll('.settings-tab'));
+    const settingsPanels = Array.from(document.querySelectorAll('.settings-panel'));
+    const settingsBody = document.querySelector('.settings-body');
+    function activateSettingsTab(name) {
+        settingsTabs.forEach((tab) => {
+            const active = tab.dataset.settingsTab === name;
+            tab.classList.toggle('active', active);
+            tab.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        settingsPanels.forEach((panel) => {
+            const active = panel.dataset.settingsPanel === name;
+            panel.classList.toggle('active', active);
+            panel.hidden = !active;
+        });
+        if (settingsBody) settingsBody.scrollTop = 0;
+    }
+    settingsTabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+            playSound('toggle');
+            activateSettingsTab(tab.dataset.settingsTab);
+        });
+    });
+    if (settingsTabs.length) activateSettingsTab(settingsTabs[0].dataset.settingsTab);
+
+    // Lock page scroll and stop scroll chaining while any modal is visible.
+    const modalNodes = Array.from(document.querySelectorAll('.modal'));
+    function syncModalScrollLock() {
+        const anyVisible = modalNodes.some((modal) => getComputedStyle(modal).display !== 'none');
+        document.body.classList.toggle('modal-open', anyVisible);
+    }
+    const modalObserver = new MutationObserver(syncModalScrollLock);
+    modalNodes.forEach((modal) => modalObserver.observe(modal, { attributes: true, attributeFilter: ['style', 'class'] }));
+    syncModalScrollLock();
+
     if (openSetupBtn && setupModal) {
         openSetupBtn.addEventListener('click', () => {
             playSound('open');

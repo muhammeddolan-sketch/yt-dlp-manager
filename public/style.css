@@ -872,9 +872,15 @@ input:focus {
     inset: 0;
     z-index: 100;
     overflow: auto;
+    overscroll-behavior: contain;
+    align-items: flex-start;
     padding: 28px;
     background: var(--overlay);
     backdrop-filter: blur(3px);
+}
+
+body.modal-open {
+    overflow: hidden;
 }
 
 .modal-content {
@@ -889,7 +895,82 @@ input:focus {
 }
 
 .settings-modal {
-    width: min(640px, calc(100vw - 56px));
+    width: min(760px, calc(100vw - 56px));
+    max-height: min(88vh, 920px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px;
+}
+
+.settings-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-bg);
+}
+
+.settings-tab {
+    flex: 1 1 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 36px;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.settings-tab i {
+    font-size: 12px;
+}
+
+.settings-tab:hover,
+.settings-tab:focus-visible {
+    background: color-mix(in oklab, var(--card-bg) 70%, transparent);
+    color: var(--text-main);
+    outline: 0;
+}
+
+.settings-tab.active {
+    background: var(--accent);
+    color: var(--accent-text);
+}
+
+.settings-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    align-content: start;
+    gap: 12px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 2px 6px 2px 2px;
+    margin-right: -4px;
+}
+
+.settings-panel {
+    display: none;
+    gap: 12px;
+}
+
+.settings-panel.active {
+    display: grid;
+}
+
+.settings-panel[hidden] {
+    display: none !important;
 }
 
 .setup-modal {
@@ -916,7 +997,6 @@ input:focus {
 }
 
 .download-modal,
-.settings-modal,
 .setup-modal,
 .onboarding-modal,
 .details-modal {
@@ -1104,6 +1184,13 @@ input:focus {
     gap: 10px;
 }
 
+.field-hint {
+    margin-top: 4px;
+    color: var(--text-dim);
+    font-size: 11.5px;
+    line-height: 1.35;
+}
+
 .toggle-stack {
     display: grid;
     gap: 8px;
@@ -1146,8 +1233,9 @@ input:focus {
 .settings-footer {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 10px;
+    padding-top: 2px;
 }
 
 .version {
@@ -1269,13 +1357,14 @@ input:focus {
 
 .tool-status {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     padding: 10px 12px;
     border: 1px solid var(--border);
     border-radius: 9px;
     background: var(--panel-bg);
     font-size: 12px;
+    overflow-wrap: anywhere;
 }
 
 .tool-row {
@@ -1298,6 +1387,7 @@ input:focus {
     width: 7px;
     height: 7px;
     flex: 0 0 auto;
+    margin-top: 5px;
     border-radius: 50%;
     background: var(--success);
 }
