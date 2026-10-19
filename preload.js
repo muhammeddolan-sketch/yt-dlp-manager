@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('unigetAPI', {
     setAlwaysOnTop: (enabled) => ipcRenderer.send('toggle-always-on-top', !!enabled),
     getAutostart: () => ipcRenderer.invoke('get-autostart'),
     setAutostart: (enabled) => ipcRenderer.invoke('set-autostart', !!enabled),
+    setHotkey: (hotkey) => ipcRenderer.invoke('set-hotkey', String(hotkey || '')),
     readClipboardText: () => clipboard.readText(),
     openExternal: (url) => {
         try {

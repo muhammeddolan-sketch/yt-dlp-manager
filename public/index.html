@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' https://fonts.googleapis.com https://cdnjs.cloudflare.com 'unsafe-inline'; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: https:; connect-src 'self' ws: wss: https://noembed.com; frame-ancestors 'none'; base-uri 'self';">
     <title>UniGet</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -39,6 +40,9 @@
             </button>
             <button id="openSettingsBtn" class="tool-button" type="button" title="Ayarlar" data-i18n-title="settings">
                 <i class="fas fa-sliders-h"></i>
+            </button>
+            <button id="exportListBtn" class="tool-button" type="button" title="Listeyi Dışa Aktar">
+                <i class="fas fa-file-export"></i>
             </button>
         </nav>
 
@@ -172,6 +176,15 @@
                     <span data-i18n="end_time">Bitiş Zamanı</span>
                     <input type="text" id="modalEndTime" placeholder="00:00:00">
                 </label>
+                <label class="field">
+                    <span>Zamanla (opsiyonel)</span>
+                    <input type="datetime-local" id="modalScheduleAt">
+                </label>
+                <div class="modal-options">
+                    <button type="button" class="btn-secondary" data-sched="5">+5 dk</button>
+                    <button type="button" class="btn-secondary" data-sched="60">+1 saat</button>
+                    <button type="button" class="btn-secondary" data-sched="1440">+1 gün</button>
+                </div>
             </div>
 
             <div class="modal-options">
@@ -182,6 +195,28 @@
                 <label class="check-row">
                     <input type="checkbox" id="modalAutoOpenCheck" checked>
                     <span data-i18n="auto_open">Klasörü Aç</span>
+                </label>
+                <label class="check-row">
+                    <input type="checkbox" id="modalSubtitlesCheck">
+                    <span data-i18n="embed_subtitles">Altyazıları Göm</span>
+                </label>
+                <label class="field">
+                    <span>Altyazı Dili</span>
+                    <select id="modalSubtitleLang">
+                        <option value="all,-live_chat">Tümü</option>
+                        <option value="tr">Türkçe</option>
+                        <option value="en">İngilizce</option>
+                        <option value="tr,en">TR+EN</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>Altyazı Formatı</span>
+                    <select id="modalSubtitleFormat">
+                        <option value="best">Otomatik</option>
+                        <option value="srt">SRT</option>
+                        <option value="vtt">VTT</option>
+                        <option value="ass">ASS</option>
+                    </select>
                 </label>
             </div>
 
@@ -297,6 +332,30 @@
                             <span>Bandwidth Limit (KB/s)</span>
                             <input type="number" id="rateLimitInput" min="0" step="128" placeholder="0 = sınırsız">
                         </label>
+                        <label class="field">
+                            <span>Paralel İndirme Limiti</span>
+                            <input type="number" id="maxConcurrentInput" min="1" max="10" step="1" placeholder="5">
+                        </label>
+                        <label class="field">
+                            <span>Geçmiş Saklama (gün)</span>
+                            <input type="number" id="historyRetentionInput" min="0" max="365" step="1" placeholder="30">
+                        </label>
+                        <label class="field">
+                            <span>Tamamlanınca Komut Çalıştır</span>
+                            <input type="text" id="postDownloadCommandInput" placeholder="örn. echo {file}">
+                        </label>
+                        <label class="field">
+                            <span>Global Kısayol</span>
+                            <input type="text" id="globalHotkeyInput" placeholder="CommandOrControl+Shift+U">
+                        </label>
+                        <label class="field">
+                            <span>Vurgu Rengi</span>
+                            <input type="color" id="accentColorInput" value="#7057ee">
+                        </label>
+                        <label class="field">
+                            <span>Dosya Adı Şablonu</span>
+                            <input type="text" id="outputTemplateInput" placeholder="%(title).180B [%(id)s].%(ext)s">
+                        </label>
                     </div>
                     <div class="toggle-stack">
                         <label class="switch-container setting-toggle">
@@ -313,6 +372,14 @@
                             <span class="switch-copy">
                                 <strong>Low Noise Notifications</strong>
                                 <small>Yalnızca önemli durumlarda bildirim gösterir.</small>
+                            </span>
+                        </label>
+                        <label class="switch-container setting-toggle">
+                            <input type="checkbox" id="sleepAfterDownloadCheck" class="switch-input">
+                            <span class="switch-slider"></span>
+                            <span class="switch-copy">
+                                <strong>Uyku Modu</strong>
+                                <small>Tüm indirmeler bitince bilgisayarı uyku moduna alır.</small>
                             </span>
                         </label>
                         <label class="switch-container setting-toggle">

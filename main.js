@@ -1,4 +1,28 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, dialog, globalShortcut } = require('electron');
+let autoUpdater = null;
+try { autoUpdater = require('electron-updater').autoUpdater; } catch (e) { autoUpdater = null; }
+
+function getAppConfig() {
+    try {
+        const homeDir = require('os').homedir();
+        let cp;
+        if (process.platform === 'win32') {
+            const appData = process.env.APPDATA || require('path').join(homeDir, 'AppData', 'Roaming');
+            cp = require('path').join(appData, 'uniget', 'config.json');
+        } else {
+            cp = require('path').join(homeDir, '.config', 'uniget', 'config.json');
+        }
+        if (require('fs').existsSync(cp)) {
+            return JSON.parse(require('fs').readFileSync(cp, 'utf8'));
+        }
+    } catch (e) {}
+    return {};
+}
+
+function getGlobalHotkey() {
+    const cfg = getAppConfig();
+    return (cfg && cfg.globalHotkey) ? String(cfg.globalHotkey) : 'CommandOrControl+Shift+U';
+}
 const path = require('path');
 const fs = require('fs');
 const { fork } = require('child_process');
@@ -245,12 +269,17 @@ function createMiniWindow() {
     }
 
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-    
+    let savedBounds = null;
+    try {
+        const bp = path.join(app.getPath('userData'), 'mini-window-bounds.json');
+        if (fs.existsSync(bp)) savedBounds = JSON.parse(fs.readFileSync(bp, 'utf8'));
+    } catch (e) {}
+
     miniWindow = new BrowserWindow({
         width: 130,
         height: 45,
-        x: width - 140,
-        y: height - 60,
+        x: (savedBounds && Number.isFinite(savedBounds.x)) ? savedBounds.x : width - 140,
+        y: (savedBounds && Number.isFinite(savedBounds.y)) ? savedBounds.y : height - 60,
         icon: path.join(__dirname, 'public', 'icon.png'),
         frame: false,
         transparent: true,
@@ -268,6 +297,13 @@ function createMiniWindow() {
         }
     });
 
+    miniWindow.on('moved', () => {
+        try {
+            if (!miniWindow || miniWindow.isDestroyed()) return;
+            const b = miniWindow.getBounds();
+            fs.writeFileSync(path.join(app.getPath('userData'), 'mini-window-bounds.json'), JSON.stringify(b));
+        } catch (e) {}
+    });
     miniWindow.loadFile(path.join(__dirname, 'public', 'mini.html'));
     miniWindow.hide();
 
@@ -326,25 +362,55 @@ ipcMain.handle('set-autostart', (event, enabled) => {
     return { supported: true, enabled: !!enabled };
 });
 
+ipcMain.handle('set-hotkey', (event, hotkey) => {
+    try {
+        globalShortcut.unregisterAll();
+        const hk = String(hotkey || '').trim() || getGlobalHotkey();
+        const ok = globalShortcut.register(hk, () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                if (mainWindow.isMinimized()) mainWindow.restore();
+                mainWindow.show();
+                mainWindow.focus();
+            } else {
+                createMainWindow();
+            }
+        });
+        return { success: !!ok, hotkey: hk };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
 app.on('ready', () => {
     if (!gotTheLock) return;
 
-    // Enable autostart by default only once; afterwards the user's choice
-    // (via the in-app toggle) is respected instead of being overwritten.
-    if (app.isPackaged) {
-        const autostartMarker = path.join(app.getPath('userData'), '.autostart-initialized');
-        if (!fs.existsSync(autostartMarker)) {
-            app.setLoginItemSettings({
-                openAtLogin: true,
-                path: app.getPath('exe'),
-                args: ['--hidden']
-            });
-            try { fs.writeFileSync(autostartMarker, '1'); } catch (e) {}
-        }
-    }
+    // Autostart is opt-in: do not enable it silently on first run.
+    // The in-app toggle (set-autostart) remains the only way to enable it.
 
     startServer();
     createTray();
+
+    // Global hotkey to show/focus the app
+    try {
+        globalShortcut.register(getGlobalHotkey(), () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                if (mainWindow.isMinimized()) mainWindow.restore();
+                mainWindow.show();
+                mainWindow.focus();
+            } else {
+                createMainWindow();
+            }
+        });
+    } catch (e) {}
+
+    // Auto-update (packaged builds only)
+    if (app.isPackaged && autoUpdater) {
+        try {
+            autoUpdater.autoDownload = true;
+            autoUpdater.autoInstallOnAppQuit = true;
+            autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+        } catch (e) {}
+    }
     if (!isHiddenStartup) {
         createMainWindow();
     } else {
@@ -358,6 +424,7 @@ app.on('before-quit', () => {
 });
 
 app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
     // Ensure child process is killed properly when the app quits
     if (serverProcess) {
         try {

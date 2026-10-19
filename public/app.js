@@ -22,7 +22,9 @@ window.addEventListener('load', () => {
     const rateLimitInput = document.getElementById('rateLimitInput');
     const smartRetryCheck = document.getElementById('smartRetryCheck');
     const lowNoiseNotificationCheck = document.getElementById('lowNoiseNotificationCheck');
+    const sleepAfterDownloadCheck = document.getElementById('sleepAfterDownloadCheck');
     const soundEffectsCheck = document.getElementById('soundEffectsCheck');
+    const accentColorInput = document.getElementById('accentColorInput');
     const useBrowserCookiesCheck = document.getElementById('useBrowserCookiesCheck');
     const cookiesBrowserSelect = document.getElementById('cookiesBrowserSelect');
     const checkUpdatesBtn = document.getElementById('checkUpdatesBtn');
@@ -70,6 +72,27 @@ window.addEventListener('load', () => {
             soundEnabled = soundEffectsCheck.checked;
             localStorage.setItem('uniget_sound_effects', String(soundEnabled));
             if (soundEnabled) playSound('toggle');
+        });
+    }
+
+    if (accentColorInput) {
+        accentColorInput.addEventListener('change', () => {
+            const c = accentColorInput.value;
+            document.documentElement.style.setProperty('--accent', c);
+            document.documentElement.style.setProperty('--accent-hover', c);
+            localStorage.setItem('uniget_accent', c);
+        });
+    }
+
+    if (globalHotkeyInput) {
+        globalHotkeyInput.addEventListener('change', async () => {
+            const hk = globalHotkeyInput.value.trim();
+            if (!hk) return;
+            try {
+                if (window.unigetAPI && window.unigetAPI.setHotkey) {
+                    await window.unigetAPI.setHotkey(hk);
+                }
+            } catch (e) {}
         });
     }
 
@@ -154,6 +177,9 @@ window.addEventListener('load', () => {
 
     function mergeDownload(dl) {
         if (!dl || !dl.id) return;
+        // Ignore partial progress payloads for downloads we don't know about,
+        // so cancelled/ghost entries can't create empty cards.
+        if (!activeDownloads[dl.id] && !dl.title && !dl.url) return;
         if (!activeDownloads[dl.id]) activeDownloads[dl.id] = dl;
         else Object.assign(activeDownloads[dl.id], dl);
         if (downloadMatchesCurrentView(activeDownloads[dl.id])) {
@@ -176,6 +202,12 @@ window.addEventListener('load', () => {
     // Theme Initialization
     const savedTheme = localStorage.getItem('uniget_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     document.documentElement.setAttribute('data-theme', savedTheme);
+
+    const savedAccent = localStorage.getItem('uniget_accent');
+    if (savedAccent) {
+        document.documentElement.style.setProperty('--accent', savedAccent);
+        document.documentElement.style.setProperty('--accent-hover', savedAccent);
+    }
 
     const themeToggleBtn = document.getElementById('themeToggleBtn');
     if (themeToggleBtn) {
@@ -244,14 +276,27 @@ window.addEventListener('load', () => {
     const downloadDirInput = document.getElementById('downloadDirInput');
     const saveDirBtn = document.getElementById('saveDirBtn');
     const selectDirBtn = document.getElementById('selectDirBtn');
+    const maxConcurrentInput = document.getElementById('maxConcurrentInput');
+    const outputTemplateInput = document.getElementById('outputTemplateInput');
+    const historyRetentionInput = document.getElementById('historyRetentionInput');
+    const postDownloadCommandInput = document.getElementById('postDownloadCommandInput');
+    const globalHotkeyInput = document.getElementById('globalHotkeyInput');
 
     if (downloadDirInput && saveDirBtn) {
         fetch('/api/settings').then(r => r.json()).then(data => {
             if (data.downloadDir) downloadDirInput.value = data.downloadDir;
             if (powerModeSelect && data.powerMode) powerModeSelect.value = data.powerMode;
             if (rateLimitInput && typeof data.rateLimitKbps !== 'undefined') rateLimitInput.value = data.rateLimitKbps;
+            if (maxConcurrentInput && typeof data.maxConcurrent !== 'undefined') maxConcurrentInput.value = data.maxConcurrent;
+            if (outputTemplateInput && typeof data.outputTemplate !== 'undefined') outputTemplateInput.value = data.outputTemplate;
+            if (historyRetentionInput && typeof data.historyRetentionDays !== 'undefined') historyRetentionInput.value = data.historyRetentionDays;
+            if (postDownloadCommandInput && typeof data.postDownloadCommand !== 'undefined') postDownloadCommandInput.value = data.postDownloadCommand;
+            if (globalHotkeyInput && typeof data.globalHotkey !== 'undefined') globalHotkeyInput.value = data.globalHotkey;
+            const savedAccent2 = localStorage.getItem('uniget_accent');
+            if (accentColorInput && savedAccent2) accentColorInput.value = savedAccent2;
             if (smartRetryCheck) smartRetryCheck.checked = data.smartRetry !== false;
             if (lowNoiseNotificationCheck) lowNoiseNotificationCheck.checked = data.lowNoiseNotifications !== false;
+            if (sleepAfterDownloadCheck) sleepAfterDownloadCheck.checked = data.sleepAfterDownload === true;
             if (useBrowserCookiesCheck) useBrowserCookiesCheck.checked = data.useBrowserCookies === true;
             if (cookiesBrowserSelect && data.cookiesBrowser) cookiesBrowserSelect.value = data.cookiesBrowser;
         });
@@ -286,8 +331,14 @@ window.addEventListener('load', () => {
                         rateLimitKbps: rateLimitInput ? Number(rateLimitInput.value || 0) : 0,
                         smartRetry: smartRetryCheck ? smartRetryCheck.checked : true,
                         lowNoiseNotifications: lowNoiseNotificationCheck ? lowNoiseNotificationCheck.checked : true,
+                        sleepAfterDownload: sleepAfterDownloadCheck ? sleepAfterDownloadCheck.checked : false,
                         useBrowserCookies: useBrowserCookiesCheck ? useBrowserCookiesCheck.checked : false,
-                        cookiesBrowser: cookiesBrowserSelect ? cookiesBrowserSelect.value : 'chrome'
+                        cookiesBrowser: cookiesBrowserSelect ? cookiesBrowserSelect.value : 'chrome',
+                        maxConcurrent: maxConcurrentInput ? Number(maxConcurrentInput.value || 5) : 5,
+                        outputTemplate: outputTemplateInput ? outputTemplateInput.value.trim() : '',
+                        historyRetentionDays: historyRetentionInput ? Number(historyRetentionInput.value || 0) : 0,
+                        postDownloadCommand: postDownloadCommandInput ? postDownloadCommandInput.value.trim() : '',
+                        globalHotkey: globalHotkeyInput ? globalHotkeyInput.value.trim() : ''
                     })
                 });
                 const data = await res.json();
@@ -311,7 +362,7 @@ window.addEventListener('load', () => {
             }
         });
 
-        [powerModeSelect, rateLimitInput, smartRetryCheck, lowNoiseNotificationCheck, useBrowserCookiesCheck, cookiesBrowserSelect].forEach((el) => {
+        [powerModeSelect, rateLimitInput, maxConcurrentInput, outputTemplateInput, historyRetentionInput, postDownloadCommandInput, globalHotkeyInput, smartRetryCheck, lowNoiseNotificationCheck, sleepAfterDownloadCheck, useBrowserCookiesCheck, cookiesBrowserSelect].forEach((el) => {
             if (!el) return;
             el.addEventListener('change', () => {
                 saveDirBtn.style.display = 'block';
@@ -405,6 +456,19 @@ window.addEventListener('load', () => {
         });
     }
 
+    if (infoModal) {
+        infoModal.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-sched]');
+            if (!btn) return;
+            const mins = Number(btn.getAttribute('data-sched')) || 0;
+            const inp = document.getElementById('modalScheduleAt');
+            if (!inp) return;
+            const d = new Date(Date.now() + mins * 60 * 1000);
+            const pad = (n) => String(n).padStart(2, '0');
+            inp.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        });
+    }
+
     // Details Modal
     const detailsModal = document.getElementById('detailsModal');
     const closeDetails = document.querySelector('.close-details');
@@ -493,6 +557,27 @@ window.addEventListener('load', () => {
         });
     }
 
+    const exportListBtn = document.getElementById('exportListBtn');
+    if (exportListBtn) {
+        exportListBtn.addEventListener('click', () => {
+            try {
+                const data = JSON.stringify(activeDownloads, null, 2);
+                const blob = new Blob([data], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `uniget-downloads-${Date.now()}.json`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                playSound('success');
+            } catch (e) {
+                playSound('error');
+            }
+        });
+    }
+
     // Event Delegation for action buttons to avoid performance issues
     if (downloadList) {
         downloadList.addEventListener('click', async (e) => {
@@ -519,6 +604,13 @@ window.addEventListener('load', () => {
             } else if (btn.classList.contains('play-file-btn')) {
                 playSound('open');
                 fetch('/api/open-file', {
+                    method: 'POST',
+                    headers: apiJsonHeaders,
+                    body: JSON.stringify({ id: dlId })
+                }).catch(e => console.error(e));
+            } else if (btn.classList.contains('reveal-btn')) {
+                playSound('open');
+                fetch('/api/reveal-file', {
                     method: 'POST',
                     headers: apiJsonHeaders,
                     body: JSON.stringify({ id: dlId })
@@ -559,12 +651,45 @@ window.addEventListener('load', () => {
         urlInput.addEventListener('blur', () => {
             urlField.style.borderColor = '';
         });
+        urlInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (addBtn) addBtn.click();
+            }
+        });
     }
 
     // Main Download Trigger
     if (addBtn) {
         addBtn.addEventListener('click', async () => {
-            const url = urlInput ? urlInput.value.trim() : '';
+            const rawUrl = urlInput ? urlInput.value : '';
+            const urls = rawUrl.split(/\\r?\\n/).map(s => s.trim()).filter(Boolean);
+            if (urls.length > 1) {
+                if (isFetchingInfo) return;
+                isFetchingInfo = true;
+                addBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                (async () => {
+                    for (const u of urls) {
+                        try {
+                            const res = await fetch('/api/info', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: u }) });
+                            const info = await res.json();
+                            if (info.error || info.downloadable === false || info.mediaType === 'image') continue;
+                            const q = localStorage.getItem('uniget_last_quality') || 'best';
+                            const battery = navigator.getBattery ? await navigator.getBattery().catch(() => null) : null;
+                            const isOnBattery = battery ? !battery.charging : false;
+                            const dr = await fetch('/api/download', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: info.url, title: info.title, thumbnail: info.thumbnail || null, quality: q, isPlaylist: false, autoOpen: false, startTime: null, endTime: null, isOnBattery, profile: 'custom' }) });
+                            const dd = await dr.json();
+                            if (dd && dd.id) mergeDownload(dd.download || { ...dd, title: info.title, url: info.url });
+                        } catch (e) {}
+                    }
+                    if (urlInput) urlInput.value = '';
+                    isFetchingInfo = false;
+                    addBtn.innerHTML = '<i class="fas fa-plus"></i>';
+                    playSound('success');
+                })();
+                return;
+            }
+            const url = urls[0] || '';
             if (!url || isFetchingInfo) return;
 
             isFetchingInfo = true;
@@ -654,6 +779,10 @@ window.addEventListener('load', () => {
                         quality: selectedQuality,
                         isPlaylist: modalPlaylistCheck ? modalPlaylistCheck.checked : (isPlaylistCheck ? isPlaylistCheck.checked : false),
                         autoOpen: modalAutoOpenCheck ? modalAutoOpenCheck.checked : true,
+                        subtitles: (document.getElementById('modalSubtitlesCheck') || {}).checked === true,
+                        subtitleLangs: (document.getElementById('modalSubtitleLang') || {}).value || '',
+                        scheduleAt: (document.getElementById('modalScheduleAt') || {}).value || null,
+                        subtitleFormat: (document.getElementById('modalSubtitleFormat') || {}).value || 'best',
                         startTime: document.getElementById('modalStartTime') ? document.getElementById('modalStartTime').value.trim() : null,
                         endTime: document.getElementById('modalEndTime') ? document.getElementById('modalEndTime').value.trim() : null,
                         isOnBattery,
@@ -851,6 +980,8 @@ window.addEventListener('load', () => {
             statusText = typeof t === 'function' ? t('completed_status') : 'Completed';
         } else if (rawStatus === 'paused') {
             statusText = typeof t === 'function' ? t('paused_status') : 'Paused';
+        } else if (rawStatus === 'scheduled') {
+            statusText = 'Zamanlandi';
         } else if (rawStatus === 'failed') {
             statusText = dl.errorDetail || (typeof t === 'function' ? t('error') : 'Error');
         } else if (rawStatus.startsWith('error:')) {
@@ -902,6 +1033,7 @@ window.addEventListener('load', () => {
             }
             if (rawStatus === 'completed' && dl.filePath) {
                 actionButtons += `<button class="btn-icon play-file-btn" title="Videoyu Aç"><i class="fas fa-play-circle"></i></button>`;
+                actionButtons += `<button class="btn-icon reveal-btn" title="Konumda Göster"><i class="fas fa-map-marker-alt"></i></button>`;
             }
             if (dl.url) {
                 actionButtons += `<button class="btn-icon copy-link-btn" title="${typeof t === 'function' ? t('copy_link') : 'Copy link'}"><i class="fas fa-link"></i></button>`;

@@ -238,7 +238,15 @@
     quickChk.id = 'uniget-quick';
     quickChk.checked = localStorage.getItem('uniget_ext_quick') === 'true';
     quickLbl.append(quickChk, document.createTextNode(t('quick_mode')));
-    optionsRow.append(plLbl, quickLbl);
+
+    const subsLbl = document.createElement('label');
+    subsLbl.className = 'uniget-opt-lbl';
+    const subsChk = document.createElement('input');
+    subsChk.type = 'checkbox';
+    subsChk.id = 'uniget-subs';
+    subsChk.checked = localStorage.getItem('uniget_ext_subs') === 'true';
+    subsLbl.append(subsChk, document.createTextNode('Altyazi'));
+    optionsRow.append(plLbl, quickLbl, subsLbl);
 
     const trimGrid = document.createElement('div');
     trimGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px;';
@@ -381,7 +389,8 @@
         const result = await bgFetch(`${API_BASE}/api/validate-media`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url })
+            body: JSON.stringify({ url }),
+            timeout: 25000
         });
         if (!result || result.error) throw new Error(result?.error || 'Media could not be verified');
         if (result.downloadable === false || result.mediaType === 'image') {
@@ -466,6 +475,7 @@
                     quality: qualitySelect.value,
                     isPlaylist: plChk.checked,
                     autoOpen: false,
+                    subtitles: subsChk.checked,
                     startTime: startTimeInp.value.trim() || null,
                     endTime: endTimeInp.value.trim() || null
                 })
@@ -522,6 +532,9 @@
     btnStart.onclick = () => queueDownload();
     quickChk.addEventListener('change', () => {
         localStorage.setItem('uniget_ext_quick', String(quickChk.checked));
+    });
+    subsChk.addEventListener('change', () => {
+        localStorage.setItem('uniget_ext_subs', String(subsChk.checked));
     });
 
     document.addEventListener('click', (e) => {

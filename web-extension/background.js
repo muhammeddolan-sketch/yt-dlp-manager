@@ -41,8 +41,9 @@ async function fetchJsonForContentScript(url, options = {}) {
 
     const headers = { ...(options.headers || { 'Content-Type': 'application/json' }) };
     if (isUniGetApiUrl(url)) headers['X-UniGet-Client'] = 'extension';
+    const timeoutMs = Number.isFinite(options.timeout) ? options.timeout : FETCH_TIMEOUT_MS;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
         const res = await fetch(url, {
@@ -81,7 +82,8 @@ myBrowser.contextMenus.onClicked.addListener((info, tab) => {
         fetchJsonForContentScript('http://127.0.0.1:3000/api/validate-media', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url })
+            body: JSON.stringify({ url }),
+            timeout: 25000
         })
         .then(data => {
             if (!data || data.error) throw new Error(data?.error || 'Media could not be verified');
@@ -145,8 +147,9 @@ myBrowser.runtime.onMessage.addListener((request, sender, sendResponse) => {
             .catch(async err => {
                 if (url.includes('localhost')) {
                     try {
-                        const fallback = url.replace('localhost', '127.0.0.1');
-                        sendResponse(await fetchJsonForContentScript(fallback, options));
+                        const fallbackUrl = new URL(url);
+                        fallbackUrl.hostname = '127.0.0.1';
+                        sendResponse(await fetchJsonForContentScript(fallbackUrl.toString(), options));
                         return;
                     } catch (fallbackErr) {
                         sendResponse({ error: fallbackErr.message || err.message || 'Fetch failed' });

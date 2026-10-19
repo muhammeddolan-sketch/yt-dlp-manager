@@ -1,6 +1,6 @@
 {
   "name": "yt-dlp-manager",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Premium YT-DLP GUI Manager",
   "main": "main.js",
   "scripts": {
@@ -64,6 +64,7 @@
     "compression": "^1.8.1",
     "cors": "^2.8.6",
     "electron-is-dev": "^3.0.1",
+    "electron-updater": "^6.6.2",
     "express": "^5.2.1",
     "socket.io": "^4.8.3"
   },

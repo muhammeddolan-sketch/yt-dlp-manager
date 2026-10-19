@@ -15,7 +15,7 @@ const APP_VERSION = require('./package.json').version;
 const app = express();
 const server = http.createServer(app);
 function isAllowedOrigin(origin) {
-    if (!origin) return true;
+    if (!origin) return false;
     try {
         const parsed = new URL(origin);
         const host = parsed.hostname;
@@ -76,13 +76,23 @@ let appConfig = {
     smartRetry: true,
     lowNoiseNotifications: true,
     useBrowserCookies: false,
-    cookiesBrowser: 'chrome'
+    cookiesBrowser: 'chrome',
+    outputTemplate: '%(title).180B [%(id)s].%(ext)s',
+    maxConcurrent: 5,
+    sleepAfterDownload: false,
+    historyRetentionDays: 30,
+    postDownloadCommand: '',
+    globalHotkey: 'CommandOrControl+Shift+U'
 };
 
 try {
     const cp = getConfigPath();
-    if (fs.existsSync(cp)) appConfig = JSON.parse(fs.readFileSync(cp, 'utf8'));
-    else {
+    if (fs.existsSync(cp)) {
+        const saved = JSON.parse(fs.readFileSync(cp, 'utf8'));
+        if (saved && typeof saved === 'object') {
+            appConfig = { ...appConfig, ...saved };
+        }
+    } else {
         fs.mkdirSync(path.dirname(cp), { recursive: true });
         fs.writeFileSync(cp, JSON.stringify(appConfig, null, 2));
     }
@@ -277,8 +287,8 @@ function loadPersistedDownloads() {
             const dl = saved[id];
             // Only restore terminal states — don't re-run active downloads
             const st = String(dl.status || '');
-            if (st === 'completed' || st === 'failed' || st.startsWith('error:')) {
-                downloads[id] = { ...dl, process: null };
+            if (st === 'completed' || st === 'failed' || st.startsWith('error:') || st === 'scheduled') {
+                downloads[id] = { ...dl, process: null, _timer: null };
             }
         }
     } catch(e) {}
@@ -291,7 +301,7 @@ function persistDownloadsState() {
         try {
             const toSave = {};
             for (const id in downloads) {
-                const { process: _p, _spawning, ...rest } = downloads[id];
+                const { process: _p, _spawning, _timer, ...rest } = downloads[id];
                 toSave[id] = rest;
             }
             const p = getDownloadsStatePath();
@@ -345,6 +355,49 @@ function getDownloadFilesFromDisk() {
         }
     } catch(e) {}
     return results.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+function cleanupPartialFiles() {
+    try {
+        const partialExts = new Set(['.part', '.ytdl', '.temp', '.tmp']);
+        const stack = [{ dir: DOWNLOADS_DIR, depth: 0 }];
+        while (stack.length) {
+            const { dir, depth } = stack.pop();
+            let entries = [];
+            try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+            for (const entry of entries) {
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    if (depth < 2) stack.push({ dir: full, depth: depth + 1 });
+                    continue;
+                }
+                const ext = path.extname(entry.name).toLowerCase();
+                if (!partialExts.has(ext)) continue;
+                try { fs.unlinkSync(full); } catch {}
+            }
+        }
+    } catch {}
+}
+
+function cleanupOldHistory() {
+    try {
+        const days = Number.parseInt(appConfig.historyRetentionDays, 10);
+        if (!Number.isFinite(days) || days <= 0) return;
+        const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+        let changed = false;
+        for (const id of Object.keys(downloads)) {
+            const dl = downloads[id];
+            const st = String(dl?.status || '');
+            if (!['completed', 'failed'].includes(st) && !st.startsWith('error:')) continue;
+            const ts = dl.completedAt ? Date.parse(dl.completedAt) : 0;
+            if (ts && ts < cutoff) {
+                delete downloads[id];
+                delete progressEmitState[id];
+                changed = true;
+            }
+        }
+        if (changed) persistDownloadsState();
+    } catch {}
 }
 
 function syncDownloadsFromDisk() {
@@ -419,6 +472,9 @@ function syncDownloadsFromDisk() {
 
 loadPersistedDownloads();
 syncDownloadsFromDisk();
+cleanupPartialFiles();
+cleanupOldHistory();
+schedulePendingDownloads();
 
 // ─── Request Deduplication & Cache ────────────────────────────────
 const infoCache = new Map(); // Simple cache: URL -> Promise
@@ -446,7 +502,13 @@ function openFolder(folderPath) {
 }
 
 // ─── Concurrent download limiter ──────────────────────────────────
-const MAX_CONCURRENT = 5;
+function getMaxConcurrent() {
+    const configured = Number.parseInt(appConfig.maxConcurrent, 10);
+    if (Number.isFinite(configured) && configured > 0) {
+        return Math.min(10, configured);
+    }
+    return 5;
+}
 
 function getActiveDownloadCount() {
     let count = 0;
@@ -458,15 +520,17 @@ function getActiveDownloadCount() {
 }
 
 function isPathInside(parentDir, childPath) {
-    const parent = path.resolve(parentDir);
-    const child = path.resolve(childPath);
+    let parent = path.resolve(parentDir);
+    let child = path.resolve(childPath);
+    try { if (fs.existsSync(parent)) parent = fs.realpathSync(parent); } catch {}
+    try { if (fs.existsSync(child)) child = fs.realpathSync(child); } catch {}
     const relative = path.relative(parent, child);
-    return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function openFile(filePath) {
     try {
-        if (!filePath || !fs.existsSync(filePath) || !isPathInside(DOWNLOADS_DIR, filePath)) return false;
+        if (!filePath || !fs.existsSync(filePath) || !isPathInside(DOWNLOADS_DIR, filePath) || !isFinalMediaFile(filePath)) return false;
         if (process.platform === 'win32') {
             spawn('cmd.exe', ['/c', 'start', '', filePath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
         } else if (process.platform === 'darwin') {
@@ -482,16 +546,8 @@ function openFile(filePath) {
 
 function findNewestCompletedFile() {
     try {
-        const ignored = new Set(['.part', '.ytdl', '.temp', '.tmp']);
-        return fs.readdirSync(DOWNLOADS_DIR)
-            .map(name => path.join(DOWNLOADS_DIR, name))
-            .filter(filePath => {
-                if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) return false;
-                const ext = path.extname(filePath).toLowerCase();
-                return !ignored.has(ext) && isFinalMediaFile(filePath);
-            })
-            .map(filePath => ({ filePath, mtimeMs: fs.statSync(filePath).mtimeMs }))
-            .sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.filePath || null;
+        const files = getDownloadFilesFromDisk();
+        return files.length ? files[0].filePath : null;
     } catch(e) {
         return null;
     }
@@ -575,8 +631,9 @@ function downloadFile(url, destPath, timeoutMs = 60000, redirectsLeft = 5) {
     return new Promise((resolve, reject) => {
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
         const file = fs.createWriteStream(destPath);
+        const requestModule = /^https:/i.test(String(url)) ? https : http;
 
-        const request = https.get(url, { headers: { 'User-Agent': `UniGet Pro v${APP_VERSION}` } }, (res) => {
+        const request = requestModule.get(url, { headers: { 'User-Agent': `UniGet Pro v${APP_VERSION}` } }, (res) => {
             // Follow redirects (bounded), keeping the caller's timeout budget
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 file.close(() => {
@@ -808,7 +865,7 @@ function emitDownloadProgress(dl, force = false) {
 
 function toSafeDownload(dl) {
     if (!dl) return null;
-    const { process: _p, _spawning, ...safeDl } = dl;
+    const { process: _p, _spawning, _timer, ...safeDl } = dl;
     return safeDl;
 }
 
@@ -945,6 +1002,29 @@ app.post('/api/validate-media', async (req, res) => {
     }
 });
 
+function schedulePendingDownloads() {
+    for (const id in downloads) {
+        const dl = downloads[id];
+        if (dl?.status !== 'scheduled' || !dl.scheduledAt) continue;
+        const delay = new Date(dl.scheduledAt).getTime() - Date.now();
+        if (delay <= 0) {
+            startDownloadTask(id);
+        } else {
+            scheduleDownloadTask(id, delay);
+        }
+    }
+}
+
+function scheduleDownloadTask(id, delayMs) {
+    const dl = downloads[id];
+    if (!dl) return;
+    if (dl._timer) clearTimeout(dl._timer);
+    dl._timer = setTimeout(() => {
+        dl._timer = null;
+        if (downloads[id]) startDownloadTask(id);
+    }, Math.max(1000, delayMs));
+}
+
 async function startDownloadTask(id) {
     const dl = downloads[id];
     if (!dl) return;
@@ -963,7 +1043,7 @@ async function startDownloadTask(id) {
     }
 
     // Enforce concurrent download limit
-    if (getActiveDownloadCount() >= MAX_CONCURRENT) {
+    if (getActiveDownloadCount() >= getMaxConcurrent()) {
         dl.status = 'queued';
         emitDownloadProgress(dl, true);
         // Re-check after a delay
@@ -1054,7 +1134,14 @@ async function startDownloadTask(id) {
             emitDownloadProgress(dl, true);
         }
     }
-    args.push('-o', '%(title).180B [%(id)s].%(ext)s', dl.url);
+    if (dl.subtitles) {
+        args.push('--write-subs', '--sub-langs', dl.subtitleLangs || 'all,-live_chat');
+        if (ffmpegAvailable) args.push('--embed-subs');
+        if (dl.subtitleFormat && dl.subtitleFormat !== 'best') {
+            args.push('--convert-subs', dl.subtitleFormat);
+        }
+    }
+    args.push('-o', dl.outputTemplate || appConfig.outputTemplate || '%(title).180B [%(id)s].%(ext)s', dl.url);
 
     const ytDlpCmd = await ensureYtDlpAvailable();
     console.log(`Starting yt-dlp with args: ${ytDlpCmd} ${args.join(' ')}`);
@@ -1110,6 +1197,9 @@ async function startDownloadTask(id) {
     dl.process.on('close', (code) => {
         console.log(`yt-dlp process closed with code: ${code}`);
         dl.process = null;
+        // If the download was cancelled/removed while the process was running,
+        // do not resurrect it as a failed download on clients.
+        if (!downloads[id]) return;
         if (code === 0) {
             if (!dl.filePath) dl.filePath = findNewestCompletedFile();
             if (!dl.filePath || !fs.existsSync(dl.filePath) || !isPathInside(DOWNLOADS_DIR, dl.filePath) || !isFinalMediaFile(dl.filePath)) {
@@ -1131,6 +1221,27 @@ async function startDownloadTask(id) {
         emitDownloadProgress(dl, true);
         if (syncDownloadsFromDisk()) {
             io.emit('initial-state', getSafeDownloads());
+        }
+
+        if (appConfig.postDownloadCommand && dl.status === 'completed' && dl.filePath) {
+            const cmd = appConfig.postDownloadCommand
+                .replace(/\{file\}/g, dl.filePath)
+                .replace(/\{dir\}/g, path.dirname(dl.filePath));
+            try { exec(cmd, { windowsHide: true }); } catch {}
+        }
+
+        if (appConfig.sleepAfterDownload && dl.status === 'completed' && getActiveDownloadCount() === 0) {
+            setTimeout(() => {
+                try {
+                    if (process.platform === 'win32') {
+                        spawn('rundll32.exe', ['powrprof.dll,SetSuspendState', '0,1,0'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+                    } else if (process.platform === 'darwin') {
+                        spawn('pmset', ['sleepnow'], { detached: true, stdio: 'ignore' }).unref();
+                    } else {
+                        spawn('systemctl', ['suspend'], { detached: true, stdio: 'ignore' }).unref();
+                    }
+                } catch {}
+            }, 5000);
         }
         delete progressEmitState[dl.id];
 
@@ -1159,6 +1270,22 @@ async function startDownloadTask(id) {
 
 app.post('/api/download', (req, res) => {
     const { isPlaylist, autoOpen, isOnBattery, profile, thumbnail } = req.body;
+    const subtitles = !!(req.body.subtitles || req.body.hasSubtitles);
+
+    let scheduledAt = null;
+    if (req.body.scheduleAt) {
+        const ts = Date.parse(req.body.scheduleAt);
+        if (Number.isFinite(ts) && ts > Date.now()) scheduledAt = new Date(ts).toISOString();
+    }
+    const outputTemplate = typeof req.body.outputTemplate === 'string' && req.body.outputTemplate.trim()
+        ? req.body.outputTemplate.trim().slice(0, 200)
+        : (appConfig.outputTemplate || '%(title).180B [%(id)s].%(ext)s');
+    const subtitleLangs = typeof (req.body.subtitleLangs || req.body.subtitleLang) === 'string'
+        ? String(req.body.subtitleLangs || req.body.subtitleLang).trim().slice(0, 120)
+        : '';
+    const subtitleFormat = ['srt', 'vtt', 'ass', 'best'].includes(String(req.body.subtitleFormat || ''))
+        ? String(req.body.subtitleFormat)
+        : 'best';
     const url = parseHttpUrl(req.body.url);
     if (!url) return res.status(400).json({ error: 'Valid HTTP(S) URL is required' });
     if (hasInvalidTime(req.body.startTime) || hasInvalidTime(req.body.endTime)) {
@@ -1179,6 +1306,9 @@ app.post('/api/download', (req, res) => {
         quality: normalizeQuality(req.body.quality),
         isPlaylist: !!isPlaylist,
         autoOpen: !!autoOpen,
+        subtitles,
+        subtitleLangs,
+        subtitleFormat,
         startTime: normalizeTime(req.body.startTime),
         endTime: normalizeTime(req.body.endTime),
         profile: typeof profile === 'string' ? profile.slice(0, 80) : 'custom',
@@ -1186,14 +1316,20 @@ app.post('/api/download', (req, res) => {
         rateLimitKbps: appConfig.rateLimitKbps || 0,
         retryEnabled: appConfig.smartRetry !== false,
         lowNoiseNotifications: appConfig.lowNoiseNotifications !== false,
+        outputTemplate,
+        scheduledAt,
         progress: 0,
         speed: '0 KiB/s',
         eta: 'loading',
-        status: 'starting'
+        status: scheduledAt ? 'scheduled' : 'starting'
     };
     
     emitDownloadProgress(downloads[id], true);
-    startDownloadTask(id);
+    if (scheduledAt) {
+        scheduleDownloadTask(id, new Date(scheduledAt).getTime() - Date.now());
+    } else {
+        startDownloadTask(id);
+    }
     res.json({ id, download: toSafeDownload(downloads[id]) });
 });
 
@@ -1214,6 +1350,7 @@ app.post('/api/action', (req, res) => {
         startDownloadTask(id);
         emitDownloadProgress(dl, true);
     } else if (action === 'cancel') {
+        if (dl._timer) { clearTimeout(dl._timer); dl._timer = null; }
         // Kill the process if running
         if (dl.process) {
             try { dl.process.kill(process.platform === 'win32' ? undefined : 'SIGTERM'); } catch(e) {}
@@ -1248,6 +1385,27 @@ app.post('/api/open-file', (req, res) => {
     const success = openFile(dl.filePath);
     if (!success) return res.status(404).json({ error: 'Dosya acilamadi' });
     res.json({ success: true });
+});
+
+app.post('/api/reveal-file', (req, res) => {
+    const id = typeof req.body.id === 'string' ? req.body.id : '';
+    const dl = downloads[id];
+    if (!dl || !dl.filePath) return res.status(404).json({ error: 'Dosya bulunamadi' });
+    if (!isPathInside(DOWNLOADS_DIR, dl.filePath) || !fs.existsSync(dl.filePath)) {
+        return res.status(404).json({ error: 'Dosya acilamadi' });
+    }
+    try {
+        if (process.platform === 'win32') {
+            spawn('explorer.exe', ['/select,', dl.filePath], { detached: true, stdio: 'ignore' }).unref();
+        } else if (process.platform === 'darwin') {
+            spawn('open', ['-R', dl.filePath], { detached: true, stdio: 'ignore' }).unref();
+        } else {
+            spawn('xdg-open', [path.dirname(dl.filePath)], { detached: true, stdio: 'ignore' }).unref();
+        }
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message || 'Reveal failed' });
+    }
 });
 
 app.post('/api/clear-completed', (req, res) => {
@@ -1356,6 +1514,28 @@ app.post('/api/settings', (req, res) => {
     }
     if (typeof req.body.lowNoiseNotifications !== 'undefined') {
         appConfig.lowNoiseNotifications = !!req.body.lowNoiseNotifications;
+    }
+    if (typeof req.body.maxConcurrent !== 'undefined') {
+        const mc = Math.max(1, Math.min(10, Number.parseInt(req.body.maxConcurrent, 10) || 5));
+        appConfig.maxConcurrent = mc;
+    }
+    if (typeof req.body.outputTemplate !== 'undefined') {
+        const tpl = String(req.body.outputTemplate || '').trim().slice(0, 200);
+        if (tpl) appConfig.outputTemplate = tpl;
+    }
+    if (typeof req.body.sleepAfterDownload !== 'undefined') {
+        appConfig.sleepAfterDownload = !!req.body.sleepAfterDownload;
+    }
+    if (typeof req.body.historyRetentionDays !== 'undefined') {
+        const d = Math.max(0, Math.min(365, Number.parseInt(req.body.historyRetentionDays, 10) || 0));
+        appConfig.historyRetentionDays = d;
+    }
+    if (typeof req.body.postDownloadCommand !== 'undefined') {
+        appConfig.postDownloadCommand = String(req.body.postDownloadCommand || '').trim().slice(0, 500);
+    }
+    if (typeof req.body.globalHotkey !== 'undefined') {
+        const hk = String(req.body.globalHotkey || '').trim().slice(0, 80);
+        if (hk) appConfig.globalHotkey = hk;
     }
     if (typeof req.body.useBrowserCookies !== 'undefined') {
         appConfig.useBrowserCookies = !!req.body.useBrowserCookies;
