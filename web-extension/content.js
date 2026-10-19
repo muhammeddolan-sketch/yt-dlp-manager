@@ -11,7 +11,10 @@
             completed: 'Tamamlandi!',
             error: 'Hata!',
             start_time: 'Baslangic',
-            end_time: 'Bitis (opsiyonel)'
+            end_time: 'Bitis (opsiyonel)',
+            subs: 'Altyazi',
+            offline: 'UniGet uygulamasi kapali',
+            open_link: 'Ac'
         },
         en: {
             download: 'Download',
@@ -22,7 +25,10 @@
             completed: 'Completed!',
             error: 'Error!',
             start_time: 'Start Time',
-            end_time: 'End (optional)'
+            end_time: 'End (optional)',
+            subs: 'Subtitles',
+            offline: 'UniGet app is closed',
+            open_link: 'Open'
         }
     };
 
@@ -32,7 +38,6 @@
     // Firefox's `browser` namespace rejects callbacks (promise-only API).
     const myBrowser = typeof chrome !== 'undefined' && chrome.runtime ? chrome : browser;
     const API_BASE = 'http://127.0.0.1:3000';
-    const manifestVersion = myBrowser.runtime.getManifest ? myBrowser.runtime.getManifest().version : '1.7.0';
 
     let currentVideoInfo = null;
     let pollTimer = null;
@@ -136,7 +141,17 @@
         currentVideoInfo = info;
         videoTitle.innerText = info.title || 'Video / Media';
         videoSub.innerText = info.author || '';
+        thumbnail.classList.add('skeleton');
         thumbnail.src = info.thumbnail || '';
+    }
+
+    function hidePopup() {
+        if (popup.style.display === 'none') return;
+        popup.classList.add('closing');
+        setTimeout(() => {
+            popup.classList.remove('closing', 'visible');
+            setVisible(popup, false);
+        }, 160);
     }
 
     function getBestVideo() {
@@ -187,18 +202,18 @@
     popup.className = 'uniget-popup';
     popup.style.display = 'none';
 
-    const titleDiv = document.createElement('div');
-    titleDiv.className = 'uniget-title-wrap';
-    const nameSpan = document.createElement('span');
-    nameSpan.innerText = 'UniGet';
-    const verSpan = document.createElement('span');
-    verSpan.innerText = `v${manifestVersion}`;
-    titleDiv.append(nameSpan, verSpan);
 
     const infoSection = document.createElement('div');
     infoSection.className = 'uniget-info-wrap';
     const thumbnail = document.createElement('img');
     thumbnail.className = 'uniget-thumb';
+    // Skeleton shimmer while the real thumbnail loads
+    const THUMB_FALLBACK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+    thumbnail.addEventListener('load', () => thumbnail.classList.remove('skeleton'));
+    thumbnail.addEventListener('error', () => {
+        // Replace the broken-image glyph with a quiet placeholder
+        if (thumbnail.src !== THUMB_FALLBACK) thumbnail.src = THUMB_FALLBACK;
+    });
     const infoText = document.createElement('div');
     infoText.style.flex = '1';
     const videoTitle = document.createElement('div');
@@ -224,7 +239,7 @@
     });
 
     const optionsRow = document.createElement('div');
-    optionsRow.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px;color:var(--uniget-text);';
+    optionsRow.className = 'uniget-opts';
     const plLbl = document.createElement('label');
     plLbl.className = 'uniget-opt-lbl';
     const plChk = document.createElement('input');
@@ -245,11 +260,11 @@
     subsChk.type = 'checkbox';
     subsChk.id = 'uniget-subs';
     subsChk.checked = localStorage.getItem('uniget_ext_subs') === 'true';
-    subsLbl.append(subsChk, document.createTextNode('Altyazi'));
+    subsLbl.append(subsChk, document.createTextNode(t('subs')));
     optionsRow.append(plLbl, quickLbl, subsLbl);
 
     const trimGrid = document.createElement('div');
-    trimGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px;';
+    trimGrid.className = 'uniget-trim-grid';
     const createTimeInput = (placeholder, id) => {
         const inp = document.createElement('input');
         inp.className = 'uniget-input-small';
@@ -262,15 +277,9 @@
     const endTimeInp = createTimeInput(t('end_time'), 'uniget-end');
     trimGrid.append(startTimeInp, endTimeInp);
 
-    const btnRow = document.createElement('div');
-    btnRow.className = 'uniget-btn-row';
     const btnStart = document.createElement('button');
     btnStart.className = 'uniget-btn-primary';
     btnStart.innerText = t('download');
-    const btnClose = document.createElement('button');
-    btnClose.className = 'uniget-btn-secondary';
-    btnClose.innerText = t('close');
-    btnRow.append(btnStart, btnClose);
 
     const progCont = document.createElement('div');
     progCont.className = 'uniget-prog-cont';
@@ -287,7 +296,7 @@
     progOuter.appendChild(progBar);
     progCont.append(progInfo, progOuter);
 
-    popup.append(titleDiv, infoSection, qualitySelect, trimGrid, optionsRow, btnRow, progCont);
+    popup.append(infoSection, qualitySelect, trimGrid, optionsRow, btnStart, progCont);
     document.body.appendChild(popup);
 
     function updatePosition() {
@@ -349,8 +358,17 @@
         if (document.getElementById('uniget-offline-banner')) return;
         const b = document.createElement('div');
         b.id = 'uniget-offline-banner';
-        b.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:#ef4444;color:#fff;text-align:center;padding:10px;z-index:2147483647;font-family:sans-serif;font-size:14px;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.3);';
-        b.innerHTML = `UniGet uygulamasi kapali! <a href="${API_BASE}" style="color:#fff;text-decoration:underline;margin-left:10px;">Ac</a>`;
+        b.className = 'uniget-offline-pill';
+        b.append(
+            Object.assign(document.createElement('span'), { className: 'uniget-pill-dot' }),
+            document.createTextNode(`${t('offline')} `)
+        );
+        const link = document.createElement('a');
+        link.href = API_BASE;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        link.innerText = t('open_link');
+        b.appendChild(link);
         document.body.appendChild(b);
     }
 
@@ -401,7 +419,9 @@
 
     function openPopup(anchorRect, video = getBestVideo(), forcedUrl = null) {
         targetUrl = forcedUrl || getCanonicalMediaUrl(video);
+        popup.classList.remove('closing');
         setVisible(popup, true);
+        popup.classList.add('visible');
 
         const popupH = 360;
         const top = anchorRect ? Math.min(window.innerHeight - popupH - 10, Math.round(anchorRect.bottom + 8)) : 20;
@@ -413,10 +433,12 @@
         loadInfo(video);
         setVisible(btnStart, true);
         btnStart.disabled = false;
+        btnStart.classList.remove('uniget-btn-loading');
         btnStart.innerText = t('download');
         setVisible(progCont, false);
-        progBar.style.background = 'var(--uniget-btn)';
+        progBar.style.background = 'var(--uniget-accent)';
         if (pollTimer) clearTimeout(pollTimer);
+        qualitySelect.focus({ preventScroll: true });
     }
 
     function pollDownload(id) {
@@ -429,16 +451,17 @@
                 if (status === 'completed') {
                     progPct.innerText = '100%';
                     progBar.style.width = '100%';
-                    progBar.style.background = '#10b981';
+                    progBar.style.background = 'var(--uniget-accent)';
                     progSpeed.innerText = t('completed');
-                    setTimeout(() => setVisible(popup, false), 1800);
+                    setTimeout(hidePopup, 1800);
                     return;
                 }
                 if (status === 'failed' || status.startsWith('error:')) {
                     progSpeed.innerText = (dl.errorDetail || status.replace('error:', '') || t('error')).slice(0, 120);
-                    progBar.style.background = '#ef4444';
+                    progBar.style.background = 'var(--uniget-danger)';
                     setVisible(btnStart, true);
                     btnStart.disabled = false;
+                    btnStart.classList.remove('uniget-btn-loading');
                     btnStart.innerText = t('download');
                     setVisible(progCont, false);
                     return;
@@ -461,9 +484,11 @@
         if (isQueueing) return;
         isQueueing = true;
         btnStart.disabled = true;
+        btnStart.classList.add('uniget-btn-loading');
         btnStart.innerText = t('processing');
 
         try {
+            if (!isAppOnline) throw new Error(t('offline'));
             await validateMediaBeforeDownload(targetUrl);
             const res = await bgFetch(`${API_BASE}/api/download`, {
                 method: 'POST',
@@ -489,6 +514,7 @@
         } catch (e) {
             alert(`UniGet: ${e.message}`);
             btnStart.disabled = false;
+            btnStart.classList.remove('uniget-btn-loading');
             btnStart.innerText = t('download');
         } finally {
             isQueueing = false;
@@ -524,12 +550,18 @@
         openPopup(btn.getBoundingClientRect(), video, targetUrl);
     };
 
-    btnClose.onclick = () => {
-        setVisible(popup, false);
-        if (pollTimer) clearTimeout(pollTimer);
-    };
-
     btnStart.onclick = () => queueDownload();
+
+    // Enter anywhere in the panel starts the download, like a dialog
+    [qualitySelect, startTimeInp, endTimeInp].forEach((el) => {
+        el.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                btnStart.disabled ? null : queueDownload();
+            }
+        });
+    });
+
     quickChk.addEventListener('change', () => {
         localStorage.setItem('uniget_ext_quick', String(quickChk.checked));
     });
@@ -537,9 +569,16 @@
         localStorage.setItem('uniget_ext_subs', String(subsChk.checked));
     });
 
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && popup.style.display !== 'none') {
+            hidePopup();
+            if (pollTimer) clearTimeout(pollTimer);
+        }
+    });
+
     document.addEventListener('click', (e) => {
-        if (!popup.contains(e.target) && e.target !== btn) {
-            setVisible(popup, false);
+        if (!popup.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+            hidePopup();
             if (pollTimer) clearTimeout(pollTimer);
         }
     }, true);

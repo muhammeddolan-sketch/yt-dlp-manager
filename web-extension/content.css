@@ -1,62 +1,92 @@
+/* UniGet Web Helper — panel & mini button */
 .uniget-mini-btn, .uniget-popup {
-    --uniget-bg: #ffffff;
-    --uniget-text: #18181b;
-    --uniget-dim: #71717a;
-    --uniget-acc: #f4f4f5;
-    --uniget-brd: #e4e4e7;
-    --uniget-btn: #18181b;
-    --uniget-btn-txt: #ffffff;
-    --uniget-focus: #18181b;
-    --uniget-hover: #e4e4e7;
+    --uniget-bg: #fbfaf6;
+    --uniget-text: #26312b;
+    --uniget-dim: #6f7d74;
+    --uniget-acc: #eef2ec;
+    --uniget-brd: #e2e8e0;
+    --uniget-hover: #e4ebe2;
+    --uniget-accent: #3fa06b;
+    --uniget-accent-hover: #2f8a56;
+    --uniget-accent-soft: rgba(63, 160, 107, 0.14);
+    --uniget-on-accent: #ffffff;
+    --uniget-danger: #e05252;
+    --uniget-danger-soft: rgba(224, 82, 82, 0.12);
+    --uniget-shadow: 0 12px 34px -12px rgba(30, 60, 40, 0.28), 0 2px 6px rgba(20, 40, 30, 0.08);
+    color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
     .uniget-mini-btn, .uniget-popup {
-        --uniget-bg: #09090b;
-        --uniget-text: #fafafa;
-        --uniget-dim: #a1a1aa;
-        --uniget-acc: #18181b;
-        --uniget-brd: #27272a;
-        --uniget-btn: #fafafa;
-        --uniget-btn-txt: #18181b;
-        --uniget-focus: #fafafa;
-        --uniget-hover: #27272a;
+        --uniget-bg: #191d1a;
+        --uniget-text: #eaeeea;
+        --uniget-dim: #9aa8a0;
+        --uniget-acc: #212722;
+        --uniget-brd: #2e342f;
+        --uniget-hover: #242b25;
+        --uniget-accent: #7fd7a8;
+        --uniget-accent-hover: #98e0bc;
+        --uniget-accent-soft: rgba(127, 215, 168, 0.16);
+        --uniget-on-accent: #10241a;
+        --uniget-danger: #f08383;
+        --uniget-danger-soft: rgba(240, 131, 131, 0.14);
+        --uniget-shadow: 0 14px 36px -12px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.35);
+        color-scheme: dark;
     }
 }
 
+/* ── Mini button ─────────────────────────────────────────── */
 .uniget-mini-btn {
     position: absolute;
     z-index: 9999999;
     background-color: var(--uniget-bg);
     color: var(--uniget-text) !important;
-    padding: 5px 8px;
-    border-radius: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
     font-family: 'Outfit', 'Inter', -apple-system, sans-serif !important;
-    font-size: 13px !important;
-    font-weight: 500 !important;
+    font-size: 12.5px !important;
+    font-weight: 600 !important;
     cursor: pointer;
     display: none;
     border: 1px solid var(--uniget-brd) !important;
-    transition: background-color 0.15s, opacity 0.2s, transform 0.1s !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: opacity 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease, background-color 0.15s !important;
+    box-shadow: var(--uniget-shadow);
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     line-height: 1.2 !important;
     text-decoration: none !important;
     pointer-events: auto;
 }
 
+@keyframes uniget-btn-in {
+    from { opacity: 0; transform: translateY(5px) scale(0.9); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .uniget-mini-btn.visible {
     display: flex !important;
+    animation: uniget-btn-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.4);
 }
 
 .uniget-mini-btn:hover {
-    transform: translateY(-1px);
-    background-color: var(--uniget-acc);
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px -10px rgba(30, 60, 40, 0.35), 0 2px 8px rgba(20, 40, 30, 0.14);
 }
 
-.uniget-mini-btn i, .uniget-mini-btn img {
-    margin-right: 6px;
+.uniget-mini-btn:active {
+    transform: translateY(0) scale(0.95);
+}
+
+.uniget-mini-btn img {
+    width: 16px;
+    height: 16px;
+    pointer-events: none;
+    display: block;
+    transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+
+.uniget-mini-btn:hover img {
+    transform: scale(1.12);
 }
 
 .uniget-mini-btn span {
@@ -64,150 +94,356 @@
 }
 
 .uniget-status-dot {
-    width: 6px;
-    height: 6px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
-    background: #ef4444;
-    box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+    background: var(--uniget-danger);
     flex-shrink: 0;
+    animation: uniget-dot-pulse 2s ease-in-out infinite;
 }
 
 .uniget-status-dot.online {
-    background: #10b981;
+    background: var(--uniget-accent);
+    animation: none;
 }
 
+@keyframes uniget-dot-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--uniget-danger) 45%, transparent); }
+    50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--uniget-danger) 20%, transparent); }
+}
+
+/* ── Popup panel ─────────────────────────────────────────── */
 .uniget-popup {
     position: fixed;
     z-index: 2147483647;
-    width: 340px;
+    width: 356px;
     background-color: var(--uniget-bg);
     color: var(--uniget-text);
-    border-radius: 8px;
-    padding: 16px;
+    border-radius: 16px;
+    padding: 14px;
     display: none;
     flex-direction: column;
-    gap: 12px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    gap: 10px;
+    box-shadow: var(--uniget-shadow);
     border: 1px solid var(--uniget-brd);
     font-family: 'Outfit', 'Inter', -apple-system, sans-serif;
+    transform-origin: top center;
+}
+
+@keyframes uniget-pop-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes uniget-pop-out {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(8px) scale(0.96); }
+}
+
+.uniget-popup.visible {
+    animation: uniget-pop-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.25);
+}
+
+.uniget-popup.closing {
+    animation: uniget-pop-out 0.16s ease forwards;
+}
+
+/* ── Info section ────────────────────────────────────────── */
+.uniget-info-wrap {
+    display: flex;
+    gap: 10px;
+}
+
+.uniget-thumb {
+    width: 108px;
+    height: 60px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: var(--uniget-acc);
+    border: 1px solid var(--uniget-brd);
+    flex: 0 0 auto;
+}
+
+@keyframes uniget-skeleton {
+    to { background-position: -180% 0; }
+}
+
+.uniget-thumb.skeleton {
+    background: linear-gradient(110deg,
+        var(--uniget-acc) 35%,
+        color-mix(in srgb, var(--uniget-accent) 10%, var(--uniget-acc)) 50%,
+        var(--uniget-acc) 65%);
+    background-size: 180% 100%;
+    animation: uniget-skeleton 1.3s ease-in-out infinite;
+}
+
+.uniget-video-title {
+    font-size: 13px;
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    color: var(--uniget-text);
+    line-height: 1.35;
+}
+
+.uniget-video-sub {
+    font-size: 11px;
+    color: var(--uniget-dim);
+    margin-top: 4px;
+}
+
+/* ── Form controls ───────────────────────────────────────── */
+.uniget-popup select,
+.uniget-input-small {
+    background-color: var(--uniget-acc);
+    color: var(--uniget-text);
+    border: 1px solid var(--uniget-brd);
+    border-radius: 9px;
+    padding: 8px 10px;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 13px;
+    font-family: inherit;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s;
+}
+
+.uniget-popup select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M1 1l4 4 4-4' fill='none' stroke='%236f7d74' stroke-width='1.6' stroke-linecap='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 28px;
+}
+
+.uniget-popup select:focus,
+.uniget-input-small:focus {
+    border-color: var(--uniget-accent);
+    box-shadow: 0 0 0 3px var(--uniget-accent-soft);
+}
+
+.uniget-input-small {
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    font-size: 12px;
+}
+
+.uniget-trim-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+/* Option chips */
+.uniget-opts {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 12px;
+}
+
+.uniget-opt-lbl {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border: 1px solid var(--uniget-brd);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--uniget-dim);
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+
+.uniget-opt-lbl:hover {
+    border-color: var(--uniget-accent);
+    color: var(--uniget-text);
+}
+
+.uniget-opt-lbl:active {
+    transform: scale(0.96);
+}
+
+.uniget-opt-lbl:has(input:checked) {
+    border-color: var(--uniget-accent);
+    background: var(--uniget-accent-soft);
+    color: var(--uniget-text);
+    font-weight: 600;
+}
+
+.uniget-opt-lbl input {
+    accent-color: var(--uniget-accent);
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+
+.uniget-opt-lbl:has(input:checked) input {
+    transform: scale(1.15);
+}
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.uniget-btn-primary {
+    width: 100%;
+    background-color: var(--uniget-accent);
+    color: var(--uniget-on-accent);
+    border: none;
+    border-radius: 10px;
+    padding: 11px;
+    font-weight: 650;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13.5px;
+    box-shadow: 0 8px 18px -8px color-mix(in srgb, var(--uniget-accent) 70%, transparent);
+    transition: transform 0.12s ease, background-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s;
+}
+
+.uniget-btn-primary:hover:not(:disabled) {
+    background-color: var(--uniget-accent-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px -8px color-mix(in srgb, var(--uniget-accent) 75%, transparent);
+}
+
+.uniget-btn-primary:active:not(:disabled) {
+    transform: translateY(0) scale(0.98);
+}
+
+.uniget-btn-primary:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+@keyframes uniget-spin {
+    to { transform: rotate(360deg); }
+}
+
+.uniget-btn-primary.uniget-btn-loading::after {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-left: 7px;
+    vertical-align: -2px;
+    border: 2px solid color-mix(in srgb, var(--uniget-on-accent) 40%, transparent);
+    border-top-color: var(--uniget-on-accent);
+    border-radius: 50%;
+    animation: uniget-spin 0.7s linear infinite;
+}
+
+/* ── Progress ────────────────────────────────────────────── */
+.uniget-prog-cont {
+    display: none;
+    flex-direction: column;
+    gap: 5px;
+    font-family: inherit;
+    color: var(--uniget-dim);
+    animation: uniget-pop-in 0.2s ease;
+}
+
+.uniget-prog-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11.5px;
+    font-family: 'JetBrains Mono', Consolas, monospace;
+}
+
+.uniget-prog-outer {
+    width: 100%;
+    height: 6px;
+    background-color: var(--uniget-acc);
+    border-radius: 999px;
+    overflow: hidden;
 }
 
 .uniget-progress-bar {
     width: 0%;
     height: 100%;
-    background-color: var(--uniget-btn);
-    transition: width 0.2s ease, background-color 0.2s ease;
-    border-radius: 2px;
+    background-color: var(--uniget-accent);
+    border-radius: 999px;
+    background-image: linear-gradient(120deg,
+        rgba(255, 255, 255, 0.28) 0%,
+        rgba(255, 255, 255, 0.28) 30%,
+        transparent 30%) !important;
+    background-size: 100% 100%;
+    transition: width 0.25s ease, background-color 0.2s ease;
+    animation: uniget-stripes 0.9s linear infinite;
 }
 
-.uniget-btn-primary {
-    flex: 2;
-    background-color: var(--uniget-btn);
-    color: var(--uniget-btn-txt);
-    border: none;
-    border-radius: 6px;
-    padding: 10px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: transform 0.1s, opacity 0.15s;
-    font-family: inherit;
-    font-size: 13px;
+@keyframes uniget-stripes {
+    to { background-position: 12px 0; }
 }
 
-.uniget-btn-primary:active {
-    transform: scale(0.97);
+/* ── Offline pill (replaces old full-width banner) ───────── */
+.uniget-offline-pill {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2147483646;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: var(--uniget-bg, #191d1a);
+    color: var(--uniget-text, #eaeeea);
+    border: 1px solid color-mix(in srgb, var(--uniget-danger, #f08383) 45%, transparent);
+    box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.45);
+    font-family: 'Outfit', 'Inter', -apple-system, sans-serif;
+    font-size: 12.5px;
+    font-weight: 600;
+    animation: uniget-pill-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.3);
 }
 
-.uniget-btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+.uniget-offline-pill .uniget-pill-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--uniget-danger, #f08383);
+    animation: uniget-dot-pulse 2s ease-in-out infinite;
+    flex-shrink: 0;
 }
 
-.uniget-btn-secondary {
-    flex: 1;
-    background-color: var(--uniget-acc);
-    color: var(--uniget-dim);
-    border: 1px solid var(--uniget-brd);
-    border-radius: 6px;
-    padding: 10px;
-    cursor: pointer;
-    transition: background-color 0.15s, color 0.15s;
-    font-size: 13px;
-    font-weight: 500;
-    font-family: inherit;
+.uniget-offline-pill a {
+    color: var(--uniget-accent) !important;
+    text-decoration: none !important;
+    padding: 2px 8px;
+    border: 1px solid color-mix(in srgb, var(--uniget-accent, #7fd7a8) 55%, transparent);
+    border-radius: 999px;
+    transition: background-color 0.15s ease, transform 0.12s ease;
 }
 
-.uniget-btn-secondary:hover {
-    background-color: var(--uniget-hover);
-    color: var(--uniget-text);
+.uniget-offline-pill a:hover {
+    background: var(--uniget-accent-soft, rgba(127, 215, 168, 0.14));
 }
 
-.uniget-input-small {
-    background-color: var(--uniget-acc);
-    color: var(--uniget-text);
-    border: 1px solid var(--uniget-brd);
-    border-radius: 4px;
-    padding: 8px;
-    font-size: 13px;
-    outline: none;
-    width: 100%;
-    box-sizing: border-box;
-    transition: border-color 0.15s;
-    font-family: inherit;
+.uniget-offline-pill a:active {
+    transform: scale(0.94);
 }
 
-.uniget-input-small:focus {
-    border-color: var(--uniget-focus);
+@keyframes uniget-pill-in {
+    from { opacity: 0; transform: translate(-50%, 12px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
 }
 
-.uniget-popup select {
-    background-color: var(--uniget-bg);
-    color: var(--uniget-text);
-    border: 1px solid var(--uniget-brd);
-    border-radius: 4px;
-    padding: 8px;
-    outline: none;
-    cursor: pointer;
-    font-size: 13px;
-    width: 100%;
-    font-family: inherit;
-}
-
-.uniget-popup select:focus {
-    border-color: var(--uniget-focus);
-}
-
-/* Specific elements for dynamic creation */
-.uniget-title-wrap {
-    font-size: 11px; color: var(--uniget-dim); display: flex; justify-content: space-between; margin-bottom: 5px;
-}
-.uniget-info-wrap {
-    display: flex; gap: 10px;
-}
-.uniget-thumb {
-    width: 100px; height: 56px; border-radius: 6px; object-fit: cover; background: var(--uniget-acc); border: 1px solid var(--uniget-brd);
-}
-.uniget-video-title {
-    font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; color: var(--uniget-text); line-height: 1.3;
-}
-.uniget-video-sub {
-    font-size: 11px; color: var(--uniget-dim); margin-top: 4px;
-}
-.uniget-opts {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: var(--uniget-text);
-}
-.uniget-opt-lbl {
-    display: flex; align-items: center; gap: 6px; cursor: pointer;
-}
-.uniget-btn-row {
-    display: flex; gap: 8px; margin-top: 5px;
-}
-.uniget-prog-cont {
-    display: none; flex-direction: column; gap: 6px; font-family: inherit; color: var(--uniget-dim);
-}
-.uniget-prog-info {
-    display: flex; justify-content: space-between; font-size: 11px;
-}
-.uniget-prog-outer {
-    width: 100%; height: 6px; background-color: var(--uniget-acc); border-radius: 3px; overflow: hidden;
+/* ── Reduced motion ──────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    .uniget-mini-btn.visible,
+    .uniget-popup.visible,
+    .uniget-popup.closing,
+    .uniget-prog-cont,
+    .uniget-offline-pill,
+    .uniget-thumb.skeleton,
+    .uniget-status-dot,
+    .uniget-offline-pill .uniget-pill-dot,
+    .uniget-btn-primary.uniget-btn-loading::after,
+    .uniget-progress-bar {
+        animation: none !important;
+    }
 }
