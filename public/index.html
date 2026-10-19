@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' https://fonts.googleapis.com https://cdnjs.cloudflare.com 'unsafe-inline'; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: https:; connect-src 'self' ws: wss: https://noembed.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self';">    <title>UniGet</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' https://fonts.googleapis.com https://cdnjs.cloudflare.com 'unsafe-inline'; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: https:; connect-src 'self' ws: wss: https://noembed.com; worker-src 'self' blob:; base-uri 'self';">    <title>UniGet</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
@@ -342,6 +342,7 @@
                         <label class="field">
                             <span>Tamamlanınca Komut Çalıştır</span>
                             <input type="text" id="postDownloadCommandInput" placeholder="örn. echo {file}">
+                            <small style="opacity:.65;font-size:.72rem;margin-top:4px;">Bu komut yerel kabukta çalıştırılır. Yalnızca güvendiğiniz komutları girin.</small>
                         </label>
                         <label class="field">
                             <span>Global Kısayol</span>
@@ -426,10 +427,18 @@
                         </span>
                     </label>
                     <div id="updateStatus" class="tool-status">Guncelleme durumu beklemede.</div>
+                    <button id="installUpdateBtn" class="secondary-button full" type="button" hidden style="margin-top:8px;">
+                        <i class="fas fa-rotate-right"></i>
+                        Yeniden Baslat ve Kur
+                    </button>
                 </section>
 
                 <div class="tool-row">
                     <div id="toolStatus" class="tool-status">Checking tools...</div>
+                    <button id="updateYtDlpBtn" class="secondary-button compact" type="button" hidden>
+                        <i class="fas fa-arrow-up"></i>
+                        yt-dlp Güncelle
+                    </button>
                     <button id="installFfmpegBtn" class="secondary-button compact" type="button" hidden>
                         <i class="fas fa-wrench"></i>
                         FFmpeg Kur
@@ -437,7 +446,7 @@
                 </div>
 
                 <div class="settings-footer">
-                    <span class="version">v1.7.0</span>
+                    <span id="appVersion" class="version">v1.8.2</span>
                 </div>
             </div>
         </div>

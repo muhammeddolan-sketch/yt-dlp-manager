@@ -1,6 +1,6 @@
 {
   "name": "yt-dlp-manager",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "description": "Premium YT-DLP GUI Manager",
   "main": "main.js",
   "scripts": {
@@ -8,6 +8,7 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win nsis",
+    "dist:publish": "electron-builder --win nsis --publish always",
     "test": "node --check server.js && node --check main.js && node --check preload.js && node --check public/app.js && node --check public/uniget-extension.user.js && node --check web-extension/background.js && node --check web-extension/content.js && node tests/api-smoke.test.js",
     "pack:extension": "node scripts/pack-extensions.js chrome",
     "pack:extension:firefox": "node scripts/pack-extensions.js firefox",

@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const APP_VERSION = require('./package.json').version;
 
 const app = express();
+app.disable('x-powered-by');
 const server = http.createServer(app);
 function isAllowedOrigin(origin) {
     if (!origin) return false;
@@ -107,6 +108,11 @@ let DOWNLOADS_DIR = appConfig.downloadDir;
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
 app.use(cors(corsOptions));
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    next();
+});
 app.use(compression());
 app.use(express.json());
 app.use('/api', (req, res, next) => {
@@ -733,6 +739,114 @@ async function ensureYtDlpAvailable() {
     }
 }
 
+function getYtDlpVersion(cmd, timeoutMs = 10000) {
+    return new Promise((resolve) => {
+        let settled = false;
+        let stdout = '';
+        const done = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        let proc;
+        try {
+            proc = spawn(cmd, ['--version']);
+        } catch {
+            return done(null);
+        }
+        const timer = setTimeout(() => {
+            try { proc.kill(); } catch {}
+            done(null);
+        }, timeoutMs);
+        proc.stdout.on('data', (data) => {
+            if (stdout.length < 500) stdout += data.toString();
+        });
+        proc.once('error', () => {
+            clearTimeout(timer);
+            done(null);
+        });
+        proc.once('close', (code) => {
+            clearTimeout(timer);
+            if (code !== 0) return done(null);
+            done(stdout.trim().split(/\r?\n/)[0] || null);
+        });
+    });
+}
+
+let _ytDlpVersionPromise = null;
+function getCachedYtDlpVersion(cmd, refresh = false) {
+    if (refresh || !_ytDlpVersionPromise) {
+        _ytDlpVersionPromise = getYtDlpVersion(cmd).then((version) => {
+            // Başarısız okumayı önbelleğe almayalım; araç sonradan kurulabilir.
+            if (!version) _ytDlpVersionPromise = null;
+            return version;
+        });
+    }
+    return _ytDlpVersionPromise;
+}
+
+let _ytDlpUpdatePromise = null;
+async function updateYtDlp() {
+    if (process.platform !== 'win32') {
+        throw new Error('yt-dlp otomatik güncellemesi yalnızca Windows üzerinde destekleniyor');
+    }
+    if (_ytDlpUpdatePromise) return _ytDlpUpdatePromise;
+    if (getActiveDownloadCount() > 0) {
+        throw new Error('Aktif indirme varken yt-dlp güncellenemez. Önce indirmeleri durdurun.');
+    }
+
+    _ytDlpUpdatePromise = (async () => {
+        const bundled = getBundledYtDlpPath();
+        const binDir = path.dirname(bundled);
+        const tempPath = `${bundled}.new`;
+        const previousVersion = await getYtDlpVersion(resolveYtDlpCmd());
+
+        fs.mkdirSync(binDir, { recursive: true });
+        try { fs.rmSync(tempPath, { force: true }); } catch {}
+
+        const url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
+        console.log('Downloading latest yt-dlp.exe...');
+        await downloadFile(url, tempPath, 5 * 60 * 1000);
+
+        const stat = fs.existsSync(tempPath) ? fs.statSync(tempPath) : null;
+        if (!stat || stat.size < 1000000) {
+            try { fs.rmSync(tempPath, { force: true }); } catch {}
+            throw new Error('İndirilen yt-dlp dosyası geçersiz veya bozuk');
+        }
+
+        const downloadedVersion = await getYtDlpVersion(tempPath);
+        if (!downloadedVersion) {
+            try { fs.rmSync(tempPath, { force: true }); } catch {}
+            throw new Error('İndirilen yt-dlp çalıştırılamadı');
+        }
+
+        try {
+            fs.renameSync(tempPath, bundled);
+        } catch (renameError) {
+            // Windows, çalışan bir exe'nin üzerine yazılmasına izin vermez.
+            try {
+                fs.copyFileSync(tempPath, bundled);
+                fs.rmSync(tempPath, { force: true });
+            } catch {
+                try { fs.rmSync(tempPath, { force: true }); } catch {}
+                throw new Error('yt-dlp güncellenemedi. Çalışan indirmeleri kapatıp tekrar deneyin.');
+            }
+        }
+
+        _cachedYtDlpPath = bundled;
+        _ytDlpVersionPromise = Promise.resolve(downloadedVersion);
+        return {
+            updated: previousVersion !== downloadedVersion,
+            previousVersion,
+            version: downloadedVersion
+        };
+    })().finally(() => {
+        _ytDlpUpdatePromise = null;
+    });
+
+    return _ytDlpUpdatePromise;
+}
+
 function checkToolAvailable(cmd, args = ['-version']) {
     return new Promise((resolve) => {
         const p = spawn(cmd, args);
@@ -1337,6 +1451,9 @@ app.post('/api/action', (req, res) => {
     const { id, action } = req.body;
     const dl = downloads[id];
     if (!dl) return res.status(404).json({ error: 'Bulunamadı' });
+    if (!['pause', 'resume', 'cancel'].includes(action)) {
+        return res.status(400).json({ error: 'Geçersiz işlem' });
+    }
 
     if (action === 'pause' && dl.process) {
         dl.status = 'paused';
@@ -1554,14 +1671,29 @@ app.get('/api/settings', (req, res) => {
     res.json(appConfig);
 });
 
+app.post('/api/tools/update-ytdlp', async (req, res) => {
+    try {
+        const result = await updateYtDlp();
+        res.json({ success: true, ...result });
+    } catch (e) {
+        res.status(500).json({ error: e.message || 'yt-dlp güncellemesi başarısız' });
+    }
+});
+
 app.get('/api/tools', async (req, res) => {
     try {
         const ytDlpCmd = resolveYtDlpCmd();
-        const ffmpegAvailable = await hasFfmpeg();
+        const [ffmpegAvailable, ytDlpVersion] = await Promise.all([
+            hasFfmpeg(),
+            getCachedYtDlpVersion(ytDlpCmd)
+        ]);
         res.json({
+            appVersion: APP_VERSION,
             ytDlp: {
                 command: ytDlpCmd,
-                bundled: ytDlpCmd === getBundledYtDlpPath()
+                bundled: ytDlpCmd === getBundledYtDlpPath(),
+                version: ytDlpVersion,
+                updatable: process.platform === 'win32'
             },
             ffmpeg: {
                 available: ffmpegAvailable,
@@ -1570,9 +1702,12 @@ app.get('/api/tools', async (req, res) => {
         });
     } catch (e) {
         res.json({
+            appVersion: APP_VERSION,
             ytDlp: {
                 command: resolveYtDlpCmd(),
-                bundled: false
+                bundled: false,
+                version: null,
+                updatable: process.platform === 'win32'
             },
             ffmpeg: {
                 available: false,
@@ -1651,6 +1786,22 @@ app.get('/api/update-check', (req, res) => {
 
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', version: APP_VERSION, app: 'UniGet' });
+});
+
+// ─── JSON error handler (never leak stack traces/paths) ───────────
+app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    const status = Number(err?.status || err?.statusCode) || 500;
+    if (err?.type === 'entity.parse.failed' || (err instanceof SyntaxError && status === 400)) {
+        return res.status(400).json({ error: 'Geçersiz JSON gövdesi' });
+    }
+    if (err?.type === 'entity.too.large' || status === 413) {
+        return res.status(413).json({ error: 'İstek gövdesi çok büyük' });
+    }
+    if (status >= 500) {
+        console.error(`[server] ${req.method} ${req.path}:`, err?.message || err);
+    }
+    res.status(status).json({ error: status >= 500 ? 'Sunucu hatası' : 'İstek işlenemedi' });
 });
 
 server.on('error', (err) => {

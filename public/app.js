@@ -30,6 +30,7 @@ window.addEventListener('load', () => {
     const cookiesBrowserSelect = document.getElementById('cookiesBrowserSelect');
     const checkUpdatesBtn = document.getElementById('checkUpdatesBtn');
     const updateStatus = document.getElementById('updateStatus');
+    const installUpdateBtn = document.getElementById('installUpdateBtn');
     const profileOption = document.getElementById('profileOption');
     const setupModal = document.getElementById('setupModal');
     const openSetupBtn = document.getElementById('openSetupBtn');
@@ -37,6 +38,8 @@ window.addEventListener('load', () => {
     const closeSetupBtn = document.getElementById('closeSetupBtn');
     const toolStatus = document.getElementById('toolStatus');
     const installFfmpegBtn = document.getElementById('installFfmpegBtn');
+    const updateYtDlpBtn = document.getElementById('updateYtDlpBtn');
+    const appVersionEl = document.getElementById('appVersion');
     const firefoxAddonBtn = document.getElementById('firefoxAddonBtn');
     const chromePackageBtn = document.getElementById('chromePackageBtn');
 
@@ -366,13 +369,18 @@ window.addEventListener('load', () => {
             const res = await fetch('/api/tools');
             const data = await res.json();
             const ffmpegReady = !!(data.ffmpeg && data.ffmpeg.available);
-            toolStatus.textContent = ffmpegReady
-                ? 'FFmpeg: hazir - yuksek kalite birlestirme acik'
-                : 'FFmpeg: yok - tek dosya progressive mod kullaniliyor';
+            const ytDlpVersion = data.ytDlp && data.ytDlp.version ? data.ytDlp.version : 'bulunamadı';
+            toolStatus.textContent = [
+                `yt-dlp: ${ytDlpVersion}`,
+                ffmpegReady ? 'FFmpeg: hazır (yüksek kalite birleştirme açık)' : 'FFmpeg: yok (progressive mod)'
+            ].join(' • ');
             if (installFfmpegBtn) installFfmpegBtn.hidden = ffmpegReady;
+            if (updateYtDlpBtn) updateYtDlpBtn.hidden = !(data.ytDlp && data.ytDlp.updatable);
+            if (appVersionEl && data.appVersion) appVersionEl.textContent = `v${data.appVersion}`;
         } catch {
-            toolStatus.textContent = 'Arac durumu okunamadi';
+            toolStatus.textContent = 'Araç durumu okunamadı';
             if (installFfmpegBtn) installFfmpegBtn.hidden = true;
+            if (updateYtDlpBtn) updateYtDlpBtn.hidden = true;
         }
     }
 
@@ -398,19 +406,78 @@ window.addEventListener('load', () => {
         });
     }
 
+    if (updateYtDlpBtn) {
+        updateYtDlpBtn.addEventListener('click', async () => {
+            updateYtDlpBtn.disabled = true;
+            if (toolStatus) toolStatus.textContent = 'yt-dlp indiriliyor ve güncelleniyor...';
+            try {
+                const res = await fetch('/api/tools/update-ytdlp', {
+                    method: 'POST',
+                    headers: apiClientHeaders
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.error) throw new Error(data.error || 'yt-dlp güncellemesi başarısız');
+                playSound('success');
+                await refreshToolStatus();
+                if (toolStatus) {
+                    toolStatus.textContent = data.updated
+                        ? `yt-dlp güncellendi: v${data.version}`
+                        : `yt-dlp zaten güncel: v${data.version}`;
+                }
+            } catch (e) {
+                playSound('error');
+                if (toolStatus) toolStatus.textContent = `yt-dlp güncellemesi başarısız: ${e.message}`;
+            } finally {
+                updateYtDlpBtn.disabled = false;
+            }
+        });
+    }
+
+    // Update flow: use the packaged auto-updater when available (Electron),
+    // otherwise fall back to the public release check in the browser.
+    const updateBridge = window.unigetAPI && typeof window.unigetAPI.checkForUpdates === 'function'
+        ? window.unigetAPI
+        : null;
+
+    function renderUpdateState(state) {
+        if (!updateStatus || !state) return;
+        const version = state.latestVersion ? `v${state.latestVersion}` : '';
+        const messages = {
+            checking: 'Guncelleme kontrol ediliyor...',
+            available: version ? `Yeni surum bulundu: ${version} (indiriliyor...)` : 'Yeni surum bulundu, indiriliyor...',
+            downloading: `Guncelleme indiriliyor: %${state.percent || 0}`,
+            downloaded: version ? `Guncelleme hazir: ${version} - yeniden baslatip kurun.` : 'Guncelleme hazir - yeniden baslatip kurun.',
+            'up-to-date': version ? `Guncel surumdesin: ${version}` : 'Guncel surumdesin.',
+            disabled: 'Guncelleme yalnizca kurulu uygulamada kullanilabilir.',
+            error: `Guncelleme hatasi: ${state.error || 'bilinmeyen hata'}`
+        };
+        if (messages[state.status]) updateStatus.textContent = messages[state.status];
+        if (installUpdateBtn) installUpdateBtn.hidden = state.status !== 'downloaded';
+    }
+
+    if (updateBridge) {
+        updateBridge.getUpdateStatus().then(renderUpdateState).catch(() => {});
+        updateBridge.onUpdateStatus(renderUpdateState);
+    }
+
     if (checkUpdatesBtn) {
         checkUpdatesBtn.addEventListener('click', async () => {
             checkUpdatesBtn.disabled = true;
             if (updateStatus) updateStatus.textContent = 'Guncelleme kontrol ediliyor...';
             try {
-                const res = await fetch('/api/update-check', { headers: apiClientHeaders });
-                const data = await res.json();
-                if (!res.ok || data.error) throw new Error(data.error || 'Guncelleme kontrolu basarisiz');
-                if (data.hasUpdate) {
-                    if (updateStatus) updateStatus.textContent = `Yeni surum var: v${data.latestVersion}`;
-                    openExternalUrl(data.url);
-                } else if (updateStatus) {
-                    updateStatus.textContent = `Guncel surumdesin: v${data.currentVersion}`;
+                if (updateBridge) {
+                    const state = await updateBridge.checkForUpdates();
+                    renderUpdateState(state || { status: 'checking' });
+                } else {
+                    const res = await fetch('/api/update-check', { headers: apiClientHeaders });
+                    const data = await res.json();
+                    if (!res.ok || data.error) throw new Error(data.error || 'Guncelleme kontrolu basarisiz');
+                    if (data.hasUpdate) {
+                        if (updateStatus) updateStatus.textContent = `Yeni surum var: v${data.latestVersion}`;
+                        openExternalUrl(data.url);
+                    } else if (updateStatus) {
+                        updateStatus.textContent = `Guncel surumdesin: v${data.currentVersion}`;
+                    }
                 }
                 playSound('success');
             } catch (e) {
@@ -418,6 +485,22 @@ window.addEventListener('load', () => {
                 if (updateStatus) updateStatus.textContent = `Guncelleme kontrolu basarisiz: ${e.message}`;
             } finally {
                 checkUpdatesBtn.disabled = false;
+            }
+        });
+    }
+
+    if (installUpdateBtn) {
+        installUpdateBtn.addEventListener('click', async () => {
+            installUpdateBtn.disabled = true;
+            try {
+                if (!updateBridge) throw new Error('Kurulum yalnizca masaustu uygulamada kullanilabilir');
+                const result = await updateBridge.installUpdate();
+                if (result && result.success === false) throw new Error(result.error || 'Kurulum baslatilamadi');
+            } catch (e) {
+                playSound('error');
+                if (updateStatus) updateStatus.textContent = `Kurulum baslatilamadi: ${e.message}`;
+            } finally {
+                installUpdateBtn.disabled = false;
             }
         });
     }

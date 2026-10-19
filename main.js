@@ -63,6 +63,80 @@ let serverProcess;
 let isQuitting = false;
 const isHiddenStartup = process.argv.includes('--hidden');
 
+// ─── Auto-update (electron-updater) ───────────────────────────────
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 saat
+let updateCheckInFlight = false;
+let updateState = { status: 'idle', currentVersion: app.getVersion() };
+
+function broadcastUpdateState(patch = {}) {
+    updateState = { ...updateState, ...patch, updatedAt: Date.now() };
+    for (const win of BrowserWindow.getAllWindows()) {
+        try { win.webContents.send('update-status', updateState); } catch (e) {}
+    }
+    return updateState;
+}
+
+function setupAutoUpdater() {
+    if (!autoUpdater || !app.isPackaged) return;
+    try {
+        autoUpdater.autoDownload = true;
+        autoUpdater.autoInstallOnAppQuit = true;
+    } catch (e) {}
+    autoUpdater.on('checking-for-update', () => broadcastUpdateState({ status: 'checking' }));
+    autoUpdater.on('update-available', (info) => broadcastUpdateState({ status: 'available', latestVersion: info?.version || null }));
+    autoUpdater.on('update-not-available', (info) => broadcastUpdateState({ status: 'up-to-date', latestVersion: info?.version || null }));
+    autoUpdater.on('download-progress', (progress) => broadcastUpdateState({
+        status: 'downloading',
+        percent: Math.max(0, Math.min(100, Math.round(progress?.percent || 0))),
+        bytesPerSecond: progress?.bytesPerSecond || 0
+    }));
+    autoUpdater.on('update-downloaded', (info) => broadcastUpdateState({ status: 'downloaded', latestVersion: info?.version || null }));
+    autoUpdater.on('error', (err) => broadcastUpdateState({
+        status: 'error',
+        error: String(err?.message || err || 'güncelleme hatası').slice(0, 300)
+    }));
+}
+
+async function checkForUpdates() {
+    if (!app.isPackaged) return broadcastUpdateState({ status: 'disabled' });
+    if (!autoUpdater) return broadcastUpdateState({ status: 'error', error: 'Güncelleme modülü bulunamadı' });
+    if (updateCheckInFlight) return updateState;
+    updateCheckInFlight = true;
+    try {
+        await autoUpdater.checkForUpdates();
+    } catch (e) {
+        broadcastUpdateState({ status: 'error', error: String(e?.message || e).slice(0, 300) });
+    } finally {
+        updateCheckInFlight = false;
+    }
+    return updateState;
+}
+
+async function downloadUpdate() {
+    if (!app.isPackaged || !autoUpdater) return { success: false, error: 'Güncelleme yalnızca kurulu sürümde çalışır' };
+    try {
+        await autoUpdater.downloadUpdate();
+        return { success: true };
+    } catch (e) {
+        broadcastUpdateState({ status: 'error', error: String(e?.message || e).slice(0, 300) });
+        return { success: false, error: e?.message || 'indirme başarısız' };
+    }
+}
+
+function installUpdate() {
+    if (!app.isPackaged || !autoUpdater) return { success: false, error: 'Güncelleme yalnızca kurulu sürümde çalışır' };
+    isQuitting = true;
+    setImmediate(() => {
+        try {
+            autoUpdater.quitAndInstall();
+        } catch (e) {
+            isQuitting = false;
+            broadcastUpdateState({ status: 'error', error: String(e?.message || e).slice(0, 300) });
+        }
+    });
+    return { success: true };
+}
+
 function isServerAlive(url, timeoutMs = 600) {
     return new Promise((resolve) => {
         const checkUrl = url.endsWith('/') ? url + 'api/health' : url + '/api/health';
@@ -381,6 +455,11 @@ ipcMain.handle('set-hotkey', (event, hotkey) => {
     }
 });
 
+ipcMain.handle('update:check', () => checkForUpdates());
+ipcMain.handle('update:download', () => downloadUpdate());
+ipcMain.handle('update:install', () => installUpdate());
+ipcMain.handle('update:status', () => updateState);
+
 app.on('ready', () => {
     if (!gotTheLock) return;
 
@@ -404,12 +483,11 @@ app.on('ready', () => {
     } catch (e) {}
 
     // Auto-update (packaged builds only)
+    setupAutoUpdater();
     if (app.isPackaged && autoUpdater) {
-        try {
-            autoUpdater.autoDownload = true;
-            autoUpdater.autoInstallOnAppQuit = true;
-            autoUpdater.checkForUpdatesAndNotify().catch(() => {});
-        } catch (e) {}
+        setTimeout(() => { checkForUpdates(); }, 10000);
+        const timer = setInterval(() => { checkForUpdates(); }, UPDATE_CHECK_INTERVAL_MS);
+        if (timer.unref) timer.unref();
     }
     if (!isHiddenStartup) {
         createMainWindow();

@@ -11,6 +11,16 @@ contextBridge.exposeInMainWorld('unigetAPI', {
     getAutostart: () => ipcRenderer.invoke('get-autostart'),
     setAutostart: (enabled) => ipcRenderer.invoke('set-autostart', !!enabled),
     setHotkey: (hotkey) => ipcRenderer.invoke('set-hotkey', String(hotkey || '')),
+    getUpdateStatus: () => ipcRenderer.invoke('update:status'),
+    checkForUpdates: () => ipcRenderer.invoke('update:check'),
+    downloadUpdate: () => ipcRenderer.invoke('update:download'),
+    installUpdate: () => ipcRenderer.invoke('update:install'),
+    onUpdateStatus: (callback) => {
+        if (typeof callback !== 'function') return () => {};
+        const listener = (_event, payload) => callback(payload);
+        ipcRenderer.on('update-status', listener);
+        return () => ipcRenderer.removeListener('update-status', listener);
+    },
     readClipboardText: () => clipboard.readText(),
     openExternal: (url) => {
         try {

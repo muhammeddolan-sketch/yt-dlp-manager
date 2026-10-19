@@ -51,11 +51,18 @@ async function statusFor(url, options) {
         assert.strictEqual(health.app, 'UniGet');
         assert.strictEqual(health.version, appVersion);
 
+        const healthRes = await fetch(`${baseUrl}/api/health`);
+        assert.strictEqual(healthRes.headers.get('x-powered-by'), null);
+        assert.strictEqual(healthRes.headers.get('x-content-type-options'), 'nosniff');
+        assert.strictEqual(healthRes.headers.get('x-frame-options'), 'DENY');
+
         const toolsRes = await fetch(`${baseUrl}/api/tools`);
         assert.strictEqual(toolsRes.status, 200);
         const tools = await toolsRes.json();
         assert.ok(tools.ytDlp);
         assert.ok(tools.ffmpeg);
+        assert.strictEqual(tools.appVersion, appVersion);
+        assert.ok('version' in tools.ytDlp);
         assert.ok(['full-quality', 'progressive-fallback'].includes(tools.ffmpeg.mode));
 
         const emptyDownloadsRes = await fetch(`${baseUrl}/api/downloads`);
@@ -78,6 +85,20 @@ async function statusFor(url, options) {
             body: JSON.stringify({ url: 'file:///tmp/video' })
         });
         assert.strictEqual(invalidUrl, 400);
+
+        const malformedRes = await fetch(`${baseUrl}/api/download`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-UniGet-Client': 'desktop'
+            },
+            body: '{not-json'
+        });
+        assert.strictEqual(malformedRes.status, 400);
+        assert.ok((malformedRes.headers.get('content-type') || '').includes('application/json'));
+        const malformedText = await malformedRes.text();
+        assert.ok(!malformedText.includes('body-parser'));
+        assert.ok(!malformedText.includes('SyntaxError'));
 
         const invalidTime = await statusFor(`${baseUrl}/api/download`, {
             method: 'POST',
@@ -108,6 +129,16 @@ async function statusFor(url, options) {
         assert.strictEqual(created.download.id, created.id);
         assert.strictEqual(created.download.title, 'Smoke Test');
 
+        const unknownAction = await statusFor(`${baseUrl}/api/action`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-UniGet-Client': 'desktop'
+            },
+            body: JSON.stringify({ id: created.id, action: 'not-a-real-action' })
+        });
+        assert.strictEqual(unknownAction, 400);
+
         const populatedDownloadsRes = await fetch(`${baseUrl}/api/downloads`);
         assert.strictEqual(populatedDownloadsRes.status, 200);
         const populatedDownloads = await populatedDownloadsRes.json();
@@ -123,6 +154,25 @@ async function statusFor(url, options) {
         assert.ok(diskEntry);
         assert.strictEqual(diskEntry.status, 'completed');
         assert.strictEqual(diskEntry.title, 'Existing Video');
+
+        const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, 'web-extension', 'manifest.json'), 'utf8'));
+        assert.strictEqual(manifest.version, appVersion);
+        for (const prefix of ['UniGet-Extension-v', 'UniGet-Firefox-Extension-v']) {
+            const packages = fs.readdirSync(rootDir).filter((name) => name.startsWith(prefix) && name.endsWith('.zip'));
+            assert.ok(packages.length > 0, `${prefix} paketi bulunamadı`);
+            assert.ok(packages.every((name) => name.includes(`v${appVersion}.zip`)), `${prefix} paket sürümü eski`);
+        }
+
+        // Auto-updater wiring: preload bridge + main-process IPC channels must stay in sync.
+        const preloadSrc = fs.readFileSync(path.join(rootDir, 'preload.js'), 'utf8');
+        for (const method of ['getUpdateStatus', 'checkForUpdates', 'installUpdate', 'onUpdateStatus']) {
+            assert.ok(preloadSrc.includes(`${method}:`), `preload.js ${method} köprüsünü sunmuyor`);
+        }
+        const mainSrc = fs.readFileSync(path.join(rootDir, 'main.js'), 'utf8');
+        for (const channel of ["'update:check'", "'update:install'", "'update:status'", "'update:download'"]) {
+            assert.ok(mainSrc.includes(channel), `main.js ${channel} kanalını işlemiyor`);
+        }
+        assert.ok(mainSrc.includes('setupAutoUpdater'), 'main.js otomatik güncelleyiciyi kurmuyor');
     } finally {
         child.kill('SIGTERM');
         fs.rmSync(appDataDir, { recursive: true, force: true });
