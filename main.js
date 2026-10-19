@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, dialog, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, dialog, globalShortcut, shell } = require('electron');
 let autoUpdater = null;
 try { autoUpdater = require('electron-updater').autoUpdater; } catch (e) { autoUpdater = null; }
 
@@ -463,6 +463,23 @@ ipcMain.handle('update:check', () => checkForUpdates());
 ipcMain.handle('update:download', () => downloadUpdate());
 ipcMain.handle('update:install', () => installUpdate());
 ipcMain.handle('update:status', () => updateState);
+
+// Open the managed sideload folder so the user can load/refresh the
+// unpacked extension once; the app keeps its files up to date.
+ipcMain.handle('extension:open-folder', async () => {
+    const appData = process.env.APPDATA || require('path').join(require('os').homedir(), 'AppData', 'Roaming');
+    const extDir = require('path').join(appData, 'uniget', 'extension');
+    try {
+        if (!require('fs').existsSync(extDir)) require('fs').mkdirSync(extDir, { recursive: true });
+        if (shell && typeof shell.openPath === 'function') {
+            const err = await shell.openPath(extDir);
+            if (err) return { ok: false, error: err, path: extDir };
+        }
+        return { ok: true, path: extDir };
+    } catch (e) {
+        return { ok: false, error: String(e && e.message || e), path: extDir };
+    }
+});
 
 app.on('ready', () => {
     if (!gotTheLock) return;

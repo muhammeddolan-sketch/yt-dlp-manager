@@ -55,6 +55,10 @@ window.addEventListener('load', () => {
     const appVersionEl = document.getElementById('appVersion');
     const firefoxAddonBtn = document.getElementById('firefoxAddonBtn');
     const chromePackageBtn = document.getElementById('chromePackageBtn');
+    const openExtensionFolderBtn = document.getElementById('openExtensionFolderBtn');
+    const extensionVersionBadge = document.getElementById('extensionVersionBadge');
+    const extensionStatusText = document.getElementById('extensionStatusText');
+    const extensionStatusBox = document.getElementById('extensionStatusBox');
 
     let currentVideoInfo = null;
     let activeDownloads = {};
@@ -563,8 +567,7 @@ window.addEventListener('load', () => {
 
     if (repairToolsBtn) repairToolsBtn.addEventListener('click', runToolRepair);
 
-    function markToolMissingFailure(dl) {
-        const detail = String(dl.errorDetail || dl.status || '').toLowerCase();
+    function markToolMissingFailure(dl) {        const detail = String(dl.errorDetail || dl.status || '').toLowerCase();
         const isMissing = String(dl.status).startsWith('error:yt-dlp-not-found')
             || (!String(dl.status || '').startsWith('error:') && detail.includes('yt-dlp') && (detail.includes('bulunamadi') || detail.includes('bulunamadı') || detail.includes('not') && detail.includes('found')));
         if (!isMissing) return;
@@ -583,6 +586,49 @@ window.addEventListener('load', () => {
         }
     }
     checkToolsOnStartup();
+
+    // ── Managed extension folder status (sideload auto-update) ──────────
+    let extensionLatestVersion = null;
+    let extensionInstalledVersion = null;
+
+    async function refreshExtensionStatus() {
+        try {
+            const res = await fetch('/api/extension/status', { headers: apiClientHeaders });
+            if (!res.ok) return;
+            const data = await res.json();
+            extensionLatestVersion = data.latestVersion || null;
+            extensionInstalledVersion = data.installedVersion || null;
+            if (extensionVersionBadge) {
+                extensionVersionBadge.textContent = extensionInstalledVersion ? `v${extensionInstalledVersion}` : 'v—';
+            }
+            const detected = document.body.dataset.unigetExtensionVersion || null;
+            const outdated = !!(extensionLatestVersion && (
+                (extensionInstalledVersion && extensionInstalledVersion !== extensionLatestVersion) ||
+                (detected && detected !== extensionLatestVersion)
+            ));
+            const key = !extensionInstalledVersion
+                ? 'extension_not_installed'
+                : (outdated ? 'extension_update_ready' : 'extension_up_to_date');
+            if (extensionStatusText) extensionStatusText.textContent = typeof t === 'function' ? t(key) : key;
+            if (extensionStatusBox) extensionStatusBox.classList.toggle('outdated', outdated);
+        } catch {
+            /* extension status is optional */
+        }
+    }
+
+    if (openExtensionFolderBtn) {
+        openExtensionFolderBtn.addEventListener('click', async () => {
+            try {
+                if (window.unigetAPI && typeof window.unigetAPI.openExtensionFolder === 'function') {
+                    await window.unigetAPI.openExtensionFolder();
+                } else {
+                    await fetch('/api/extension/open-folder', { method: 'POST', headers: apiClientHeaders });
+                }
+            } catch (e) { /* ignore */ }
+            refreshExtensionStatus();
+        });
+    }
+    refreshExtensionStatus();
 
     // Update flow: use the packaged auto-updater when available (Electron),
     // otherwise fall back to the public release check in the browser.
@@ -764,6 +810,7 @@ window.addEventListener('load', () => {
         openSetupBtn.addEventListener('click', () => {
             playSound('open');
             setupModal.style.display = 'flex';
+            refreshExtensionStatus();
         });
     }
     if (closeSetup && setupModal) {
@@ -1640,8 +1687,13 @@ window.addEventListener('load', () => {
     // Extension Detection - check correct attribute set by content.js
     setInterval(() => {
         const isExtensionActive = document.body.dataset.unigetExtension === "active";
+        const detectedVersion = document.body.dataset.unigetExtensionVersion || null;
         if (openSetupBtn) {
-            if (isExtensionActive) {
+            const outdated = !!(extensionLatestVersion && detectedVersion && detectedVersion !== extensionLatestVersion);
+            if (outdated) {
+                openSetupBtn.style.color = "var(--warning)";
+                openSetupBtn.title = typeof t === 'function' ? t('extension_update_available') : "Extension update available";
+            } else if (isExtensionActive) {
                 openSetupBtn.style.color = "var(--text-dim)";
                 openSetupBtn.title = "Eklenti Aktif";
             } else {

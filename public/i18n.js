@@ -72,7 +72,13 @@ const translations = {
         repair_btn: "Araçları Onar",
         repair_running: "Araçlar onarılıyor, indirme araçları tekrar hazırlanıyor...",
         repair_done: "Araçlar onarıldı — başarısız indirmeler otomatik yeniden deneniyor.",
-        repair_failed: "Onarım başarısız:"
+        repair_failed: "Onarım başarısız:",
+        extension_folder: "Eklenti klasörü",
+        extension_open_folder: "Klasörü Aç",
+        extension_not_installed: "Eklenti henüz yüklenmemiş. Klasörü açıp chrome://extensions üzerinden bir kez yükle.",
+        extension_update_ready: "Eklenti dosyaları güncellendi. Tarayıcıda chrome://extensions → Yenile (veya tarayıcıyı yeniden başlat).",
+        extension_up_to_date: "Eklenti güncel — yönetilen klasörden yüklü.",
+        extension_update_available: "Eklenti güncellemesi var"
     },
     en: {
         app_title: "UniGet",
@@ -147,7 +153,13 @@ const translations = {
         repair_btn: "Repair tools",
         repair_running: "Repairing tools, getting downloads ready again...",
         repair_done: "Tools repaired — failed downloads are being retried automatically.",
-        repair_failed: "Repair failed:"
+        repair_failed: "Repair failed:",
+        extension_folder: "Extension folder",
+        extension_open_folder: "Open folder",
+        extension_not_installed: "Extension not loaded yet. Open the folder and load it once via chrome://extensions.",
+        extension_update_ready: "Extension files were updated. Reload it in chrome://extensions (or restart the browser).",
+        extension_up_to_date: "Extension is up to date — loaded from the managed folder.",
+        extension_update_available: "Extension update available"
     },
     de: {
         app_title: "UniGet",
@@ -222,7 +234,13 @@ const translations = {
         repair_btn: "Tools reparieren",
         repair_running: "Tools werden repariert...",
         repair_done: "Tools repariert — fehlgeschlagene Downloads werden automatisch erneut versucht.",
-        repair_failed: "Reparatur fehlgeschlagen:"
+        repair_failed: "Reparatur fehlgeschlagen:",
+        extension_folder: "Erweiterungsordner",
+        extension_open_folder: "Ordner öffnen",
+        extension_not_installed: "Erweiterung noch nicht geladen. Ordner öffnen und einmal über chrome://extensions laden.",
+        extension_update_ready: "Erweiterungsdateien wurden aktualisiert. In chrome://extensions neu laden (oder Browser neu starten).",
+        extension_up_to_date: "Erweiterung ist aktuell — aus dem verwalteten Ordner geladen.",
+        extension_update_available: "Erweiterungs-Update verfügbar"
     },
     fr: {
         app_title: "UniGet",
@@ -297,7 +315,13 @@ const translations = {
         repair_btn: "Réparer les outils",
         repair_running: "Réparation des outils en cours...",
         repair_done: "Outils réparés — les téléchargements en échec sont automatiquement relancés.",
-        repair_failed: "Échec de la réparation :"
+        repair_failed: "Échec de la réparation :",
+        extension_folder: "Dossier de l'extension",
+        extension_open_folder: "Ouvrir le dossier",
+        extension_not_installed: "Extension pas encore chargée. Ouvrez le dossier et chargez-la une fois via chrome://extensions.",
+        extension_update_ready: "Les fichiers de l'extension ont été mis à jour. Rechargez-la dans chrome://extensions (ou redémarrez le navigateur).",
+        extension_up_to_date: "L'extension est à jour — chargée depuis le dossier géré.",
+        extension_update_available: "Mise à jour de l'extension disponible"
     },
     es: {
         app_title: "UniGet",
@@ -372,7 +396,13 @@ const translations = {
         repair_btn: "Reparar herramientas",
         repair_running: "Reparando herramientas...",
         repair_done: "Herramientas reparadas — las descargas fallidas se reintentan automáticamente.",
-        repair_failed: "Fallo en la reparación:"
+        repair_failed: "Fallo en la reparación:",
+        extension_folder: "Carpeta de la extensión",
+        extension_open_folder: "Abrir carpeta",
+        extension_not_installed: "La extensión aún no está cargada. Abre la carpeta y cárgala una vez desde chrome://extensions.",
+        extension_update_ready: "Los archivos de la extensión se actualizaron. Recárgala en chrome://extensions (o reinicia el navegador).",
+        extension_up_to_date: "La extensión está actualizada — cargada desde la carpeta gestionada.",
+        extension_update_available: "Actualización de la extensión disponible"
     }
 };
 

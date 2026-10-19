@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('unigetAPI', {
     setAutostart: (enabled) => ipcRenderer.invoke('set-autostart', !!enabled),
     setHotkey: (hotkey) => ipcRenderer.invoke('set-hotkey', String(hotkey || '')),
     getUpdateStatus: () => ipcRenderer.invoke('update:status'),
+    openExtensionFolder: () => ipcRenderer.invoke('extension:open-folder'),
     checkForUpdates: () => ipcRenderer.invoke('update:check'),
     downloadUpdate: () => ipcRenderer.invoke('update:download'),
     installUpdate: () => ipcRenderer.invoke('update:install'),

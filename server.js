@@ -150,6 +150,106 @@ app.get('/extension/chrome-package', (req, res) => {
     res.download(path.join(__dirname, packageName), packageName);
 });
 
+// ─── Managed extension folder (sideload auto-update) ─────────────────
+// Chrome/Edge cannot auto-update unpacked extensions, but we can keep the
+// files in a stable folder fresh. After an app update the folder is
+// rewritten and the extension updates on browser restart / Reload.
+function getExtensionDir() {
+    return path.join(path.dirname(getConfigPath()), 'extension');
+}
+
+function findExtensionSourceDir() {
+    const candidates = [
+        path.join(__dirname, 'web-extension'),
+        path.join(__dirname, 'public', 'extension')
+    ];
+    for (const dir of candidates) {
+        try {
+            if (fs.existsSync(path.join(dir, 'manifest.json'))) return dir;
+        } catch {}
+    }
+    return null;
+}
+
+function readExtensionVersion(dir) {
+    try {
+        return JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')).version || null;
+    } catch {
+        return null;
+    }
+}
+
+function copyExtensionFolder(src, dest) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const name of fs.readdirSync(src)) {
+        const from = path.join(src, name);
+        let stat;
+        try { stat = fs.statSync(from); } catch { continue; }
+        if (!stat.isFile()) continue;
+        fs.copyFileSync(from, path.join(dest, name));
+    }
+}
+
+let extensionSyncState = { installedVersion: null, latestVersion: null, dir: null, syncedAt: 0 };
+function syncExtensionFolder(force = false) {
+    const source = findExtensionSourceDir();
+    const dir = getExtensionDir();
+    if (!source) {
+        extensionSyncState = { ...extensionSyncState, dir };
+        return extensionSyncState;
+    }
+    const latestVersion = readExtensionVersion(source);
+    const installedVersion = readExtensionVersion(dir);
+    let copied = false;
+    if (force || !installedVersion || installedVersion !== latestVersion) {
+        try {
+            copyExtensionFolder(source, dir);
+            copied = true;
+        } catch (e) {
+            extensionSyncState = { ...extensionSyncState, dir, latestVersion, error: String(e && e.message || e) };
+            return extensionSyncState;
+        }
+    }
+    extensionSyncState = {
+        installedVersion: readExtensionVersion(dir),
+        latestVersion,
+        dir,
+        syncedAt: copied ? Date.now() : (extensionSyncState.syncedAt || Date.now()),
+        error: null
+    };
+    return extensionSyncState;
+}
+
+app.get('/api/extension/status', (req, res) => {
+    const state = syncExtensionFolder(false);
+    res.json({
+        ...state,
+        updateAvailable: !!(state.latestVersion && state.installedVersion !== state.latestVersion),
+        managed: true
+    });
+});
+
+app.post('/api/extension/sync', (req, res) => {
+    res.json(syncExtensionFolder(true));
+});
+
+app.post('/api/extension/open-folder', (req, res) => {
+    const dir = getExtensionDir();
+    try {
+        fs.mkdirSync(dir, { recursive: true });
+        if (process.platform === 'win32') {
+            exec(`explorer.exe "${dir}"`);
+        } else if (process.platform === 'darwin') {
+            exec(`open "${dir}"`);
+        } else {
+            exec(`xdg-open "${dir}"`);
+        }
+        res.json({ ok: true, dir });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: String(e && e.message || e), dir });
+    }
+});
+
 let downloads = {};
 const progressEmitState = {};
 
@@ -497,6 +597,7 @@ function syncDownloadsFromDisk(force = false) {
 
 loadPersistedDownloads();
 syncDownloadsFromDisk(true);
+syncExtensionFolder(false);
 cleanupPartialFiles();
 cleanupOldHistory();
 schedulePendingDownloads();
@@ -607,17 +708,21 @@ function getVideoFormatOption(quality, ffmpegAvailable) {
     if (!ffmpegAvailable) {
         // FFmpeg yokken sadece birleşik tek dosya formatları seçilir.
         // Böylece video+ses parçaları kullanıcının klasörüne ayrı ayrı düşmez.
+        // Son fallback olarak 'w' (worst) eklenir — hiç format bulunamazsa en azından
+        // bir şey indirilebilsin.
         return height
-            ? `b${cap}[ext=mp4]/b${cap}/b[ext=mp4]/b`
-            : 'b[ext=mp4]/b';
+            ? `b${cap}[ext=mp4]/b${cap}/b[ext=mp4]/b/w`
+            : 'b[ext=mp4]/b/w';
     }
 
     // FFmpeg varken önce MP4/H.264 uyumlu tek veya birleşebilir formatlar denenir.
     // X/Twitter bazı MP4 videolarında codec bilgisini "unknown" döndürdüğü için
     // fallback tarafında vcodec filtresi kasıtlı olarak kullanılmıyor.
+    // Son fallback: bv*+ba (filtresiz), b (best combined), w (worst) — her durumda
+    // bir format bulunabilmesi garantilenir.
     return height
-        ? `bv*${cap}[ext=mp4]+ba[ext=m4a]/bv*${cap}+ba/b${cap}[ext=mp4]/b${cap}/b[ext=mp4]/b`
-        : 'bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b';
+        ? `bv*${cap}[ext=mp4]+ba[ext=m4a]/bv*${cap}+ba/b${cap}[ext=mp4]/b${cap}/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b/w`
+        : 'bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b[ext=mp4]/b/w';
 }
 
 function getBundledYtDlpPath() {
@@ -1191,7 +1296,14 @@ async function startDownloadTask(id) {
     dl._spawning = true;
 
     const ffmpegAvailable = await hasFfmpeg();
-    const formatOption = getVideoFormatOption(dl.quality, ffmpegAvailable);
+    let formatOption = getVideoFormatOption(dl.quality, ffmpegAvailable);
+
+    // Format retry: önceki denemede "Requested format is not available" alındıysa
+    // filtre/codec kısıtlaması olmayan basit bir format stringi kullan.
+    if (dl._useSimpleFormat) {
+        formatOption = ffmpegAvailable ? 'bv*+ba/b/w' : 'b/w';
+        console.log(`[yt-dlp] Using simple fallback format for ${dl.id}: ${formatOption}`);
+    }
 
     if (!ffmpegAvailable && dl.quality !== 'best' && dl.quality !== 'audio' && Number.parseInt(dl.quality, 10) > 720) {
         dl.status = 'ffmpeg yok: tek dosya MP4/progressive mod kullaniliyor';
@@ -1321,8 +1433,33 @@ async function startDownloadTask(id) {
         if (chunk.includes('ERROR:')) {
             const cleanErr = chunk.replace('ERROR:', '').trim();
             console.warn(`[yt-dlp error]: ${cleanErr}`);
+
+            // "Requested format is not available" — format filtresi hiçbir formata
+            // denk gelmediyse, basit bir fallback ile tekrar dene.
+            if (/requested format/i.test(cleanErr) && !dl._formatRetried) {
+                dl._formatRetried = true;
+                console.log(`[yt-dlp] Format retry: killing process and retrying with fallback format for ${dl.id}`);
+                try { dl.process.kill(process.platform === 'win32' ? undefined : 'SIGTERM'); } catch {}
+                // Kısa bir gecikmeyle basit formatta tekrar başlat
+                setTimeout(async () => {
+                    if (!downloads[dl.id]) return;
+                    dl.process = null;
+                    dl._spawning = false;
+                    dl._useSimpleFormat = true;
+                    dl.status = 'starting';
+                    dl.errorDetail = null;
+                    emitDownloadProgress(dl, true);
+                    startDownloadTask(dl.id);
+                }, 500);
+                return;
+            }
+
             dl.errorDetail = cleanErr.substring(0, 300);
-            dl.status = `error:${cleanErr.substring(0, 100)}`;
+            // "Requested format is not available" hatası için daha açıklayıcı mesaj
+            if (/requested format/i.test(cleanErr)) {
+                dl.errorDetail = 'İstenen format bu video için mevcut değil. yt-dlp\'yi güncellemeyi deneyin (Ayarlar > yt-dlp Güncelle).';
+            }
+            dl.status = `error:${dl.errorDetail.substring(0, 100)}`;
             emitDownloadProgress(dl, true);
         }
     });

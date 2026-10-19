@@ -601,6 +601,9 @@
 
     if (window.location.host === 'localhost:3000' || window.location.host === '127.0.0.1:3000') {
         document.body.dataset.unigetExtension = 'active';
+        try {
+            document.body.dataset.unigetExtensionVersion = myBrowser.runtime.getManifest().version;
+        } catch (e) { /* version unavailable */ }
     }
 
     requestPositionUpdate();
