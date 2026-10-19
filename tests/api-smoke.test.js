@@ -203,9 +203,12 @@ async function statusFor(url, options) {
         assert.ok(appSrc.includes('refreshLibraryMeta'), 'app.js kitaplık sayaçlarını güncellemiyor');
         assert.ok(appSrc.includes('emptyStateKey'), 'app.js filtreye özel boş durum mesajı üretmiyor');
         assert.ok(styleSrc.includes('grid-template-columns: 252px minmax(0, 1fr)'), 'style.css sol sütun genişliğini tanımlamıyor');
-        assert.ok(styleSrc.includes('grid-template-columns: repeat(2, minmax(0, 1fr))'), 'style.css yatay video ızgarasını tanımlamıyor');
+        assert.ok(styleSrc.includes('grid-template-areas: "thumb details actions"'), 'style.css tam genişlik video satırını tanımlamıyor');
+        assert.ok(styleSrc.includes('app-container[data-sidebar="collapsed"]'), 'style.css katlı sol sütun durumunu tanımlamıyor');
+        assert.ok(styleSrc.includes('--scrollbar-thumb'), 'style.css kaydırma çubuğu temasını tanımlamıyor');
+        assert.ok(styleSrc.includes('scrollbar-gutter: stable'), 'style.css liste kaydırmasında yer tutucu tanımlamıyor');
         const i18nSrc = fs.readFileSync(path.join(rootDir, 'public', 'i18n.js'), 'utf8');
-        for (const key of ['new_download', 'library', 'tools', 'export_list', 'videos', 'no_completed', 'no_active', 'no_results']) {
+        for (const key of ['new_download', 'library', 'tools', 'export_list', 'videos', 'no_completed', 'no_active', 'no_results', 'sidebar_collapse', 'sidebar_expand']) {
             assert.ok(i18nSrc.includes(`${key}:`), `i18n "${key}" anahtarı eksik`);
         }
 

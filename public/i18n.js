@@ -63,7 +63,9 @@ const translations = {
         videos: "video",
         no_results: "Aramanızla eşleşen indirme yok.",
         no_completed: "Henüz tamamlanmış indirme yok.",
-        no_active: "Şu anda indirilen bir video yok."
+        no_active: "Şu anda indirilen bir video yok.",
+        sidebar_collapse: "Soldaki sütunu küçült",
+        sidebar_expand: "Soldaki sütunu büyüt"
     },
     en: {
         app_title: "UniGet",
@@ -129,7 +131,9 @@ const translations = {
         videos: "videos",
         no_results: "No downloads match your search.",
         no_completed: "No completed downloads yet.",
-        no_active: "No active downloads right now."
+        no_active: "No active downloads right now.",
+        sidebar_collapse: "Collapse the sidebar",
+        sidebar_expand: "Expand the sidebar"
     },
     de: {
         app_title: "UniGet",
@@ -195,7 +199,9 @@ const translations = {
         videos: "Videos",
         no_results: "Keine Downloads passen zur Suche.",
         no_completed: "Noch keine abgeschlossenen Downloads.",
-        no_active: "Derzeit keine aktiven Downloads."
+        no_active: "Derzeit keine aktiven Downloads.",
+        sidebar_collapse: "Seitenleiste einklappen",
+        sidebar_expand: "Seitenleiste ausklappen"
     },
     fr: {
         app_title: "UniGet",
@@ -261,7 +267,9 @@ const translations = {
         videos: "vidéos",
         no_results: "Aucun téléchargement ne correspond à votre recherche.",
         no_completed: "Aucun téléchargement terminé pour le moment.",
-        no_active: "Aucun téléchargement actif pour le moment."
+        no_active: "Aucun téléchargement actif pour le moment.",
+        sidebar_collapse: "Réduire la barre latérale",
+        sidebar_expand: "Développer la barre latérale"
     },
     es: {
         app_title: "UniGet",
@@ -327,7 +335,9 @@ const translations = {
         videos: "videos",
         no_results: "Ninguna descarga coincide con tu búsqueda.",
         no_completed: "Aún no hay descargas completadas.",
-        no_active: "No hay descargas activas en este momento."
+        no_active: "No hay descargas activas en este momento.",
+        sidebar_collapse: "Contraer la barra lateral",
+        sidebar_expand: "Expandir la barra lateral"
     }
 };
 
@@ -376,4 +386,7 @@ function updateUI() {
     
     // Notify app if callback exists
     if (window.onLangChange) window.onLangChange(currentLang);
+
+    // Sidebar view label + collapse button tooltips
+    if (typeof window.refreshSidebarMeta === 'function') window.refreshSidebarMeta();
 }

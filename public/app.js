@@ -5,6 +5,9 @@ window.addEventListener('load', () => {
     const addBtn = document.getElementById('addBtn');
     const downloadList = document.getElementById('downloadList');
     const newDownloadBtn = document.getElementById('newDownloadBtn');
+    const appContainer = document.querySelector('.app-container');
+    const sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn');
+    const libraryViewLabelEl = document.getElementById('libraryViewLabel');
     const countAllEl = document.getElementById('countAll');
     const countDownloadingEl = document.getElementById('countDownloading');
     const countCompletedEl = document.getElementById('countCompleted');
@@ -664,9 +667,18 @@ window.addEventListener('load', () => {
             currentView = item.getAttribute('data-view');
             // Sidebar navigation mirrors the same view state
             navItems.forEach(nav => nav.classList.toggle('active', nav.getAttribute('data-view') === currentView));
+            updateLibraryViewLabel();
             renderList();
         });
     });
+
+    if (sidebarCollapseBtn) {
+        sidebarCollapseBtn.addEventListener('click', () => {
+            const collapsed = appContainer?.getAttribute('data-sidebar') === 'collapsed';
+            localStorage.setItem('uniget_sidebar_collapsed', !collapsed ? '1' : '0');
+            applySidebarState(!collapsed);
+        });
+    }
 
     if (newDownloadBtn) {
         newDownloadBtn.addEventListener('click', () => {
@@ -1131,6 +1143,29 @@ window.addEventListener('load', () => {
         if (currentView === 'downloading') return 'no_active';
         return 'no_downloads';
     }
+
+    function updateLibraryViewLabel() {
+        if (!libraryViewLabelEl) return;
+        const key = currentView === 'all' ? 'downloads_title' : currentView;
+        libraryViewLabelEl.textContent = typeof t === 'function' ? t(key) : 'Downloads';
+    }
+
+    function applySidebarState(collapsed) {
+        if (appContainer) appContainer.setAttribute('data-sidebar', collapsed ? 'collapsed' : 'expanded');
+        if (sidebarCollapseBtn) {
+            sidebarCollapseBtn.setAttribute('aria-expanded', String(!collapsed));
+            sidebarCollapseBtn.title = typeof t === 'function'
+                ? t(collapsed ? 'sidebar_expand' : 'sidebar_collapse')
+                : (collapsed ? 'Expand the sidebar' : 'Collapse the sidebar');
+        }
+    }
+
+    window.refreshSidebarMeta = () => {
+        updateLibraryViewLabel();
+        applySidebarState(appContainer?.getAttribute('data-sidebar') === 'collapsed');
+    };
+    applySidebarState(localStorage.getItem('uniget_sidebar_collapsed') === '1');
+    refreshSidebarMeta();
 
     function updateCard(dl, cardEl) {
         let card = cardEl || document.getElementById(`dl-${dl.id}`);
