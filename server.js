@@ -412,7 +412,20 @@ function cleanupOldHistory() {
     } catch {}
 }
 
-function syncDownloadsFromDisk() {
+let _lastDiskSync = 0;
+let _lastDiskMtimeMs = 0;
+function syncDownloadsFromDisk(force = false) {
+    // /api/downloads is polled every 5s; walking the whole downloads folder on
+    // every poll is wasted disk I/O. A cheap statSync of the folder mtime tells
+    // us whether anything actually changed (new/renamed files). Otherwise we
+    // only do a safety rescan every 10s. Completion/startup/dir-change paths
+    // still pass force=true for an immediate refresh.
+    const now = Date.now();
+    let dirMtimeMs = 0;
+    try { dirMtimeMs = fs.statSync(DOWNLOADS_DIR).mtimeMs; } catch (e) { /* folder missing */ }
+    if (!force && now - _lastDiskSync < 10000 && dirMtimeMs <= _lastDiskMtimeMs) return false;
+    _lastDiskSync = now;
+    _lastDiskMtimeMs = dirMtimeMs;
     let changed = false;
     const diskFiles = getDownloadFilesFromDisk();
     const knownPaths = new Map();
@@ -483,7 +496,7 @@ function syncDownloadsFromDisk() {
 }
 
 loadPersistedDownloads();
-syncDownloadsFromDisk();
+syncDownloadsFromDisk(true);
 cleanupPartialFiles();
 cleanupOldHistory();
 schedulePendingDownloads();
@@ -1339,7 +1352,7 @@ async function startDownloadTask(id) {
             if (!dl.errorDetail && stderrBuf) dl.errorDetail = stderrBuf.trim().substring(0, 300);
         }
         emitDownloadProgress(dl, true);
-        if (syncDownloadsFromDisk()) {
+        if (syncDownloadsFromDisk(true)) {
             io.emit('initial-state', getSafeDownloads());
         }
 
@@ -1622,7 +1635,7 @@ app.post('/api/settings', (req, res) => {
         DOWNLOADS_DIR = appConfig.downloadDir;
         try {
             if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
-            if (syncDownloadsFromDisk()) io.emit('initial-state', getSafeDownloads());
+            if (syncDownloadsFromDisk(true)) io.emit('initial-state', getSafeDownloads());
         } catch(e) {}
     }
     if (['auto', 'eco', 'normal', 'performance'].includes(req.body.powerMode)) {

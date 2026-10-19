@@ -1,0 +1,5 @@
+Font Awesome Free 6.4.0
+Icons: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+Fonts: SIL OFL 1.1
+Code: MIT
+Source: https://fontawesome.com

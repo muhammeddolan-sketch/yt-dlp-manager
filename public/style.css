@@ -910,6 +910,8 @@ input:focus {
     border-radius: 6px;
     background: var(--card-bg);
     contain: content;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 88px;
 }
 
 .download-card:hover {

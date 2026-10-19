@@ -201,10 +201,27 @@ window.addEventListener('load', () => {
         try {
             const res = await fetch('/api/downloads', { headers: apiClientHeaders });
             if (!res.ok) return;
-            activeDownloads = await res.json();
+            const data = await res.json();
+            // Skip the full reconcile when nothing meaningful changed
+            // (the 5s poll overlaps with socket progress updates).
+            const sig = downloadsSignature(data);
+            if (sig === lastDownloadsSig) return;
+            lastDownloadsSig = sig;
+            activeDownloads = data;
             renderList();
         } catch(e) {}
     }
+
+    function downloadsSignature(map) {
+        const parts = [];
+        for (const id in map) {
+            const dl = map[id];
+            if (!dl) continue;
+            parts.push(`${id}:${dl.status || ''}:${Math.round(Number(dl.progress) || 0)}`);
+        }
+        return parts.join('|');
+    }
+    let lastDownloadsSig = '';
 
     // Theme Initialization
     const savedTheme = localStorage.getItem('uniget_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -781,9 +798,13 @@ window.addEventListener('load', () => {
     // Download list search filter
     const filterInput = document.getElementById('filterInput');
     if (filterInput) {
+        let filterTimer = null;
         filterInput.addEventListener('input', () => {
-            searchQuery = filterInput.value.trim().toLowerCase();
-            renderList();
+            clearTimeout(filterTimer);
+            filterTimer = setTimeout(() => {
+                searchQuery = filterInput.value.trim().toLowerCase();
+                renderList();
+            }, 120);
         });
     }
 
@@ -1207,27 +1228,49 @@ window.addEventListener('load', () => {
     function renderList() {
         if (!downloadList) return;
         let dlArray = Object.values(activeDownloads).reverse();
-        
+
         dlArray = dlArray.filter(downloadMatchesCurrentView);
 
         refreshLibraryMeta();
 
         if (dlArray.length === 0) {
-            downloadList.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-cloud-download-alt"></i>
-                    <p>${typeof t === 'function' ? t(emptyStateKey()) : 'No downloads yet.'}</p>
-                </div>
-            `;
+            if (!downloadList.querySelector('.empty-state')) {
+                downloadList.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-cloud-download-alt"></i>
+                        <p>${typeof t === 'function' ? t(emptyStateKey()) : 'No downloads yet.'}</p>
+                    </div>
+                `;
+            }
             return;
         }
 
-        const fragment = document.createDocumentFragment();
-        downloadList.innerHTML = '';
-        dlArray.forEach(dl => {
-            fragment.appendChild(createCard(dl));
-        });
-        downloadList.appendChild(fragment);
+        const emptyState = downloadList.querySelector('.empty-state');
+        if (emptyState) emptyState.remove();
+
+        // Keyed reconcile: keep existing card nodes, only create/remove what
+        // really changed. This avoids the 5s poll tearing down the whole list
+        // (scroll position, hover state and thumbnails stay intact).
+        const wanted = new Set(dlArray.map((dl) => `dl-${dl.id}`));
+        for (const card of Array.from(downloadList.children)) {
+            if (!wanted.has(card.id)) card.remove();
+        }
+
+        let ref = downloadList.firstElementChild;
+        for (const dl of dlArray) {
+            const cardId = `dl-${dl.id}`;
+            let card = document.getElementById(cardId);
+            if (!card) {
+                card = createCard(dl);
+            } else {
+                updateCard(dl, card);
+            }
+            if (card !== ref) {
+                downloadList.insertBefore(card, ref);
+            } else {
+                ref = ref.nextElementSibling;
+            }
+        }
     }
 
     function downloadMatchesCurrentView(dl) {
@@ -1247,18 +1290,26 @@ window.addEventListener('load', () => {
     function refreshLibraryMeta() {
         const downloads = Object.values(activeDownloads);
         const total = downloads.length;
-        const completed = downloads.filter((dl) => String(dl?.status || '') === 'completed').length;
-        const downloading = downloads.filter((dl) => {
+        let completed = 0;
+        let downloading = 0;
+        let visible = 0;
+        for (const dl of downloads) {
             const status = String(dl?.status || '');
-            return status !== 'completed' && !status.startsWith('error:') && status !== 'failed';
-        }).length;
-        if (countAllEl) countAllEl.textContent = total;
-        if (countDownloadingEl) countDownloadingEl.textContent = downloading;
-        if (countCompletedEl) countCompletedEl.textContent = completed;
+            const isCompleted = status === 'completed';
+            const isFailed = status === 'failed' || status.startsWith('error:');
+            if (isCompleted) completed++;
+            else if (!isFailed) downloading++;
+            if (downloadMatchesCurrentView(dl)) visible++;
+        }
+        const setText = (el, value) => {
+            if (el && el.textContent !== String(value)) el.textContent = value;
+        };
+        setText(countAllEl, total);
+        setText(countDownloadingEl, downloading);
+        setText(countCompletedEl, completed);
         if (librarySummaryEl) {
-            const visible = downloads.filter(downloadMatchesCurrentView).length;
             const unit = typeof t === 'function' ? t('videos') : 'videos';
-            librarySummaryEl.textContent = searchQuery ? `${visible} / ${total} ${unit}` : `${visible} ${unit}`;
+            setText(librarySummaryEl, searchQuery ? `${visible} / ${total} ${unit}` : `${visible} ${unit}`);
         }
     }
 
@@ -1329,12 +1380,16 @@ window.addEventListener('load', () => {
         const safeStatus = statusText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
         if (meta) {
-            meta.innerHTML = `
+            const metaHtml = `
                 <span>${dl.progress || 0}%</span>
                 <span>${dl.speed || '--'}</span>
                 <span>${dl.eta || '--:--'}</span>
                 <span class="status-badge" style="text-transform: capitalize;">${safeStatus}</span>
             `;
+            if (meta._html !== metaHtml) {
+                meta.innerHTML = metaHtml;
+                meta._html = metaHtml;
+            }
         }
 
         card.classList.remove('completed', 'failed', 'paused', 'downloading');
@@ -1441,7 +1496,7 @@ window.addEventListener('load', () => {
         card.id = `dl-${dl.id}`;
         const safeTitle = (dl.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         const thumbHtml = dl.thumbnail
-            ? `<img class="card-thumb" src="${dl.thumbnail.replace(/"/g,'&quot;')}" alt="" loading="lazy">`
+            ? `<img class="card-thumb" src="${dl.thumbnail.replace(/"/g,'&quot;')}" alt="" loading="lazy" decoding="async">`
             : `<div class="card-icon"><i class="fas fa-arrow-down"></i></div>`;
         card.innerHTML = `
             ${thumbHtml}

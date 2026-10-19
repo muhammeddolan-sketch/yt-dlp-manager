@@ -1,0 +1,3 @@
+Inter — SIL Open Font License 1.1 (https://github.com/rsms/inter)
+JetBrains Mono — SIL Open Font License 1.1 (https://github.com/JetBrains/JetBrainsMono)
+Served locally; subset files from Google Fonts (latin, latin-ext).
