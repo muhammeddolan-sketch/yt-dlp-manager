@@ -1,8 +1,11 @@
 // UniGet Pro - Core Application Logic
 window.addEventListener('load', () => {
     const socket = typeof io !== 'undefined' ? io({ transports: ['websocket', 'polling'] }) : null;
-    const urlInput = document.getElementById('urlInput');
-    const addBtn = document.getElementById('addBtn');
+    const addModal = document.getElementById('addModal');
+    const addForm = document.getElementById('addForm');
+    const addUrlInput = document.getElementById('addUrlInput');
+    const addSubmitBtn = document.getElementById('addSubmitBtn');
+    const addPlaylistCheck = document.getElementById('addPlaylistCheck');
     const downloadList = document.getElementById('downloadList');
     const newDownloadBtn = document.getElementById('newDownloadBtn');
     const appContainer = document.querySelector('.app-container');
@@ -16,7 +19,6 @@ window.addEventListener('load', () => {
     const closeModal = document.querySelector('.close-modal');
     const confirmDownload = document.getElementById('confirmDownload');
     const qualityOption = document.getElementById('qualityOption');
-    const isPlaylistCheck = document.getElementById('isPlaylistCheck');
     const modalPlaylistCheck = document.getElementById('modalPlaylistCheck');
     const modalAutoOpenCheck = document.getElementById('modalAutoOpenCheck');
     const openFolderGlobal = document.getElementById('openFolderGlobal') || document.getElementById('openFolderBtn');
@@ -876,10 +878,7 @@ window.addEventListener('load', () => {
     if (newDownloadBtn) {
         newDownloadBtn.addEventListener('click', () => {
             playSound('open');
-            if (urlInput) {
-                urlInput.focus();
-                urlInput.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            }
+            openAddModal();
         });
     }
 
@@ -988,121 +987,140 @@ window.addEventListener('load', () => {
         try { new URL(str); return true; } catch { return false; }
     }
 
-    // Inline URL validation feedback
-    if (urlInput) {
-        const urlField = urlInput.closest('.url-field') || urlInput;
-        urlInput.addEventListener('input', () => {
-            const val = urlInput.value.trim();
-            if (!val) {
-                urlField.style.borderColor = '';
+    // Add dialog
+    function openAddModal(prefill) {
+        if (!addModal) return;
+        addModal.style.display = 'flex';
+        if (addUrlInput) {
+            addUrlInput.value = prefill || '';
+            addUrlInput.focus();
+            addUrlInput.select();
+        }
+    }
+
+    function closeAddModal() {
+        if (!addModal) return;
+        addModal.style.display = 'none';
+    }
+
+    function setAddBusy(busy) {
+        if (!addSubmitBtn) return;
+        addSubmitBtn.disabled = busy;
+        addSubmitBtn.innerHTML = busy ? '<i class="fas fa-spinner fa-spin"></i>' : 'Devam';
+    }
+
+    async function beginDownloadFromUrl(rawUrl) {
+        const urls = String(rawUrl || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+        if (!urls.length || isFetchingInfo) return;
+
+        if (!isValidUrl(urls[0])) {
+            playSound('error');
+            alert('Geçerli bir bağlantı girin.');
+            return;
+        }
+
+        isFetchingInfo = true;
+        setAddBusy(true);
+        try {
+            if (urls.length > 1) {
+                for (const u of urls) {
+                    try {
+                        const res = await fetch('/api/info', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: u }) });
+                        const info = await res.json();
+                        if (info.error || info.downloadable === false || info.mediaType === 'image') continue;
+                        const q = localStorage.getItem('uniget_last_quality') || 'best';
+                        const battery = navigator.getBattery ? await navigator.getBattery().catch(() => null) : null;
+                        const isOnBattery = battery ? !battery.charging : false;
+                        const dr = await fetch('/api/download', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: info.url, title: info.title, thumbnail: info.thumbnail || null, quality: q, isPlaylist: false, autoOpen: false, startTime: null, endTime: null, isOnBattery, profile: 'custom' }) });
+                        const dd = await dr.json();
+                        if (dd && dd.id) mergeDownload(dd.download || { ...dd, title: info.title, url: info.url });
+                    } catch (e) {}
+                }
+                closeAddModal();
+                playSound('success');
                 return;
             }
-            urlField.style.borderColor = isValidUrl(val) ? 'var(--success)' : 'var(--danger)';
-        });
-        urlInput.addEventListener('blur', () => {
-            urlField.style.borderColor = '';
-        });
-        urlInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                if (addBtn) addBtn.click();
+
+            const url = urls[0];
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+            const res = await fetch('/api/info', {
+                method: 'POST',
+                headers: apiJsonHeaders,
+                body: JSON.stringify({ url }),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            const info = await res.json();
+            if (info.error) throw new Error(info.error);
+            if (info.downloadable === false || info.mediaType === 'image') {
+                throw new Error('Bu bağlantı video/ses gibi görünmüyor.');
             }
+
+            const quickMode = localStorage.getItem('uniget_quick_mode') === 'true';
+            if (quickMode) {
+                const selectedQuality = localStorage.getItem('uniget_last_quality') || 'best';
+                const battery = navigator.getBattery ? await navigator.getBattery().catch(() => null) : null;
+                const isOnBattery = battery ? !battery.charging : false;
+
+                const downloadRes = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: apiJsonHeaders,
+                    body: JSON.stringify({
+                        url: info.url,
+                        title: info.title,
+                        quality: selectedQuality,
+                        isPlaylist: addPlaylistCheck ? addPlaylistCheck.checked : false,
+                        autoOpen: localStorage.getItem('uniget_auto_open') === 'true',
+                        startTime: null,
+                        endTime: null,
+                        isOnBattery,
+                        profile: 'custom'
+                    })
+                });
+                const downloadData = await downloadRes.json();
+                if (!downloadRes.ok || downloadData.error) throw new Error(downloadData.error || 'Download could not be started');
+                mergeDownload(downloadData.download || { ...downloadData, title: info.title, url: info.url });
+                playSound('start');
+                closeAddModal();
+            } else {
+                currentVideoInfo = { ...info, url };
+                if (modalPlaylistCheck && addPlaylistCheck) modalPlaylistCheck.checked = addPlaylistCheck.checked;
+                playSound('open');
+                closeAddModal();
+                showModal(info);
+            }
+        } catch (e) {
+            playSound('error');
+            const errMsg = e.name === 'AbortError' ? 'İstek zaman aşımına uğradı.' : e.message;
+            alert((typeof t === 'function' ? t('error') : 'Hata') + ': ' + errMsg);
+        } finally {
+            isFetchingInfo = false;
+            setAddBusy(false);
+        }
+    }
+
+    if (addForm) {
+        addForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const raw = addUrlInput ? addUrlInput.value.trim() : '';
+            if (!raw) {
+                if (addUrlInput) addUrlInput.focus();
+                return;
+            }
+            beginDownloadFromUrl(raw);
         });
     }
 
-    // Main Download Trigger
-    if (addBtn) {
-        addBtn.addEventListener('click', async () => {
-            const rawUrl = urlInput ? urlInput.value : '';
-            const urls = rawUrl.split(/\\r?\\n/).map(s => s.trim()).filter(Boolean);
-            if (urls.length > 1) {
-                if (isFetchingInfo) return;
-                isFetchingInfo = true;
-                addBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-                (async () => {
-                    for (const u of urls) {
-                        try {
-                            const res = await fetch('/api/info', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: u }) });
-                            const info = await res.json();
-                            if (info.error || info.downloadable === false || info.mediaType === 'image') continue;
-                            const q = localStorage.getItem('uniget_last_quality') || 'best';
-                            const battery = navigator.getBattery ? await navigator.getBattery().catch(() => null) : null;
-                            const isOnBattery = battery ? !battery.charging : false;
-                            const dr = await fetch('/api/download', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: info.url, title: info.title, thumbnail: info.thumbnail || null, quality: q, isPlaylist: false, autoOpen: false, startTime: null, endTime: null, isOnBattery, profile: 'custom' }) });
-                            const dd = await dr.json();
-                            if (dd && dd.id) mergeDownload(dd.download || { ...dd, title: info.title, url: info.url });
-                        } catch (e) {}
-                    }
-                    if (urlInput) urlInput.value = '';
-                    isFetchingInfo = false;
-                    addBtn.innerHTML = '<i class="fas fa-plus"></i>';
-                    playSound('success');
-                })();
-                return;
-            }
-            const url = urls[0] || '';
-            if (!url || isFetchingInfo) return;
+    document.querySelectorAll('.close-add').forEach((btn) => {
+        btn.addEventListener('click', closeAddModal);
+    });
 
-            isFetchingInfo = true;
-            addBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000);
-                
-                const res = await fetch('/api/info', {
-                    method: 'POST',
-                    headers: apiJsonHeaders,
-                    body: JSON.stringify({ url }),
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
-                
-                const info = await res.json();
-                if (info.error) throw new Error(info.error);
-                if (info.downloadable === false || info.mediaType === 'image') {
-                    throw new Error('Bu baglanti video/ses gibi gorunmuyor. Foto veya desteklenmeyen medya olabilir.');
-                }
-                
-                const isQuickMode = localStorage.getItem('uniget_quick_mode') === 'true';
-                if (isQuickMode) {
-                    const selectedQuality = localStorage.getItem('uniget_last_quality') || 'best';
-                    const battery = navigator.getBattery ? await navigator.getBattery().catch(() => null) : null;
-                    const isOnBattery = battery ? !battery.charging : false;
-                    
-                    const downloadRes = await fetch('/api/download', {
-                        method: 'POST',
-                        headers: apiJsonHeaders,
-                        body: JSON.stringify({ 
-                            url: info.url,
-                            title: info.title,
-                            quality: selectedQuality,
-                            isPlaylist: isPlaylistCheck ? isPlaylistCheck.checked : false,
-                            autoOpen: localStorage.getItem('uniget_auto_open') === 'true',
-                            startTime: null,
-                            endTime: null,
-                            isOnBattery,
-                            profile: 'custom'
-                        })
-                    });
-                    const downloadData = await downloadRes.json();
-                    if (!downloadRes.ok || downloadData.error) throw new Error(downloadData.error || 'Download could not be started');
-                    mergeDownload(downloadData.download || { ...downloadData, title: info.title, url: info.url });
-                    playSound('start');
-                    if (urlInput) urlInput.value = '';
-                } else {
-                    currentVideoInfo = { ...info, url };
-                    if (modalPlaylistCheck && isPlaylistCheck) modalPlaylistCheck.checked = isPlaylistCheck.checked;
-                    playSound('open');
-                    showModal(info);
-                }
-            } catch (e) {
-                playSound('error');
-                const errMsg = e.name === 'AbortError' ? 'Timeout fetching video info' : e.message;
-                alert((typeof t === 'function' ? t('error') : 'Error') + ': ' + errMsg);
-            } finally {
-                isFetchingInfo = false;
-                addBtn.innerHTML = '<i class="fas fa-plus"></i>';
-            }
+    if (addModal) {
+        addModal.addEventListener('click', (e) => {
+            if (e.target === addModal) closeAddModal();
         });
     }
 
@@ -1128,7 +1146,7 @@ window.addEventListener('load', () => {
                         title: currentVideoInfo.title,
                         thumbnail: currentVideoInfo.thumbnail || null,
                         quality: selectedQuality,
-                        isPlaylist: modalPlaylistCheck ? modalPlaylistCheck.checked : (isPlaylistCheck ? isPlaylistCheck.checked : false),
+                        isPlaylist: modalPlaylistCheck ? modalPlaylistCheck.checked : false,
                         autoOpen: modalAutoOpenCheck ? modalAutoOpenCheck.checked : true,
                         subtitles: (document.getElementById('modalSubtitlesCheck') || {}).checked === true,
                         subtitleLangs: (document.getElementById('modalSubtitleLang') || {}).value || '',
@@ -1149,7 +1167,6 @@ window.addEventListener('load', () => {
                 
                 playSound('start');
                 if (infoModal) infoModal.style.display = 'none';
-                if (urlInput) urlInput.value = '';
             } catch(e) {
                 playSound('error');
                 console.error('Download Trigger Error:', e);
@@ -1208,7 +1225,8 @@ window.addEventListener('load', () => {
     }
 
     refreshDownloads();
-    setInterval(refreshDownloads, 5000);
+    // Live updates come over the socket; this is only a slow safety net.
+    setInterval(refreshDownloads, 15000);
 
     function maybeNotify(dl) {
         const notificationsEnabled = lowNoiseNotificationCheck ? lowNoiseNotificationCheck.checked : true;
@@ -1390,6 +1408,19 @@ window.addEventListener('load', () => {
     applySidebarState(localStorage.getItem('uniget_sidebar_collapsed') === '1');
     refreshSidebarMeta();
 
+    function formatFileSize(bytes) {
+        const value = Number(bytes);
+        if (!Number.isFinite(value) || value <= 0) return '';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = value;
+        let unit = 0;
+        while (size >= 1024 && unit < units.length - 1) {
+            size /= 1024;
+            unit += 1;
+        }
+        return `${size >= 100 || unit === 0 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`;
+    }
+
     function updateCard(dl, cardEl) {
         let card = cardEl || document.getElementById(`dl-${dl.id}`);
         if (!card) {
@@ -1427,12 +1458,19 @@ window.addEventListener('load', () => {
         const safeStatus = statusText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
         if (meta) {
-            const metaHtml = `
-                <span>${dl.progress || 0}%</span>
-                <span>${dl.speed || '--'}</span>
-                <span>${dl.eta || '--:--'}</span>
-                <span class="status-badge" style="text-transform: capitalize;">${safeStatus}</span>
-            `;
+            const doneSize = rawStatus === 'completed' && dl.fileSize ? formatFileSize(dl.fileSize) : '';
+            const metaHtml = rawStatus === 'completed'
+                ? `
+                    <span>${dl.progress || 100}%</span>
+                    ${doneSize ? `<span>${doneSize}</span>` : ''}
+                    <span class="status-badge" style="text-transform: capitalize;">${safeStatus}</span>
+                `
+                : `
+                    <span>${dl.progress || 0}%</span>
+                    <span>${dl.speed || '--'}</span>
+                    <span>${dl.eta || '--:--'}</span>
+                    <span class="status-badge" style="text-transform: capitalize;">${safeStatus}</span>
+                `;
             if (meta._html !== metaHtml) {
                 meta.innerHTML = metaHtml;
                 meta._html = metaHtml;
@@ -1572,10 +1610,7 @@ window.addEventListener('load', () => {
                 (text.includes('youtube.com/') || text.includes('youtu.be/') ||
                  text.includes('vimeo.com/') || text.includes('twitch.tv/'))) {
                 lastClipboardText = text;
-                if (urlInput) {
-                    urlInput.value = text;
-                    if (isQuickMode && addBtn) addBtn.click();
-                }
+                if (localStorage.getItem('uniget_quick_mode') === 'true') beginDownloadFromUrl(text);
             }
         } catch (e) {}
     }
@@ -1678,9 +1713,7 @@ window.addEventListener('load', () => {
         
         const url = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list');
         if (url && (url.includes('http://') || url.includes('https://'))) {
-            playSound('start');
-            if (urlInput) urlInput.value = url;
-            if (addBtn) addBtn.click();
+            beginDownloadFromUrl(url);
         }
     });
 

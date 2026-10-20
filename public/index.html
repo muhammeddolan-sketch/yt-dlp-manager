@@ -84,29 +84,6 @@
         </aside>
 
         <main class="main-content">
-            <section class="command-panel">
-                <div class="search-bar">
-                    <div class="url-field">
-                        <i class="fas fa-link"></i>
-                        <input type="text" id="urlInput" data-i18n="placeholder_url" placeholder="URL yapıştırın veya sürükleyin">
-                    </div>
-                    <button id="addBtn" type="button" aria-label="Add download">
-                        <i class="fas fa-plus"></i>
-                    </button>
-                </div>
-                <div class="quick-options">
-                    <label class="check-row">
-                        <input type="checkbox" id="isPlaylistCheck">
-                        <span data-i18n="playlist">Çalma Listesi</span>
-                    </label>
-                    <label class="switch-container">
-                        <span class="switch-label">Hızlı İndir</span>
-                        <input type="checkbox" id="quickDownloadCheck" class="switch-input">
-                        <span class="switch-slider"></span>
-                    </label>
-                </div>
-            </section>
-
             <div class="library-toolbar">
                 <span id="libraryViewLabel" class="library-view">İndirmeler</span>
                 <span id="librarySummary" class="library-summary">0 video</span>
@@ -139,6 +116,32 @@
                 </div>
             </section>
         </main>
+    </div>
+
+    <div id="addModal" class="modal">
+        <div class="modal-content add-modal">
+            <button class="close-add modal-close" type="button" aria-label="Kapat">&times;</button>
+            <p class="section-label">Yeni İndirme</p>
+            <h3>Bağlantı ekle</h3>
+            <form id="addForm" novalidate>
+                <label class="field">
+                    <span>Video veya çalma listesi bağlantısı</span>
+                    <input type="text" id="addUrlInput" placeholder="https://..." autocomplete="off" spellcheck="false">
+                </label>
+                <label class="check-row">
+                    <input type="checkbox" id="addPlaylistCheck">
+                    <span>Çalma listesinin tamamını indir</span>
+                </label>
+                <label class="check-row">
+                    <input type="checkbox" id="quickDownloadCheck">
+                    <span>Hızlı indir (seçenekleri sormadan başlat)</span>
+                </label>
+                <div class="add-modal-actions">
+                    <button type="button" class="btn-secondary close-add">Vazgeç</button>
+                    <button type="submit" id="addSubmitBtn" class="btn-primary">Devam</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <div id="infoModal" class="modal">
