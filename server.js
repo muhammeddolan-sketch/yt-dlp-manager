@@ -404,6 +404,15 @@ function isDirectMediaUrl(value) {
     }
 }
 
+function isYouTubeUrl(value) {
+    try {
+        const host = new URL(value).hostname.replace(/^www\./i, '').toLowerCase();
+        return host === 'youtube.com' || host === 'youtu.be' || host.endsWith('.youtube.com');
+    } catch {
+        return false;
+    }
+}
+
 // ─── Persist completed/failed downloads across restarts ──────────
 function getDownloadsStatePath() {
     return path.join(getAppDataDir(), 'downloads-state.json');
@@ -1320,7 +1329,7 @@ async function startDownloadTask(id) {
     // Format retry: önceki denemede "Requested format is not available" alındıysa
     // filtre/codec kısıtlaması olmayan basit bir format stringi kullan.
     if (dl._useSimpleFormat) {
-        formatOption = ffmpegAvailable ? 'bv*+ba/b/w' : 'b/w';
+        formatOption = ffmpegAvailable ? 'bv*+ba/b/w' : 'b[ext=mp4]/b/w';
         console.log(`[yt-dlp] Using simple fallback format for ${dl.id}: ${formatOption}`);
     }
 
@@ -1374,6 +1383,14 @@ async function startDownloadTask(id) {
     }
 
     appendBrowserCookieArgs(args);
+
+    // YouTube's default player clients (e.g. visionOS) may expose only
+    // separate video/audio streams. Without FFmpeg we cannot merge them, so
+    // ask for clients that still return a combined progressive format.
+    // On a format-error retry, use the same clients even with FFmpeg.
+    if (isYouTubeUrl(dl.url) && (!ffmpegAvailable || dl._formatRetried)) {
+        args.push('--extractor-args', 'youtube:player_client=android,mweb');
+    }
 
     // Trimming support
     if (dl.startTime || dl.endTime) {
@@ -1476,7 +1493,9 @@ async function startDownloadTask(id) {
             dl.errorDetail = cleanErr.substring(0, 300);
             // "Requested format is not available" hatası için daha açıklayıcı mesaj
             if (/requested format/i.test(cleanErr)) {
-                dl.errorDetail = 'İstenen format bu video için mevcut değil. yt-dlp\'yi güncellemeyi deneyin (Ayarlar > yt-dlp Güncelle).';
+                dl.errorDetail = ffmpegAvailable
+                    ? 'Bu video için uygun bir format bulunamadı. yt-dlp\'yi güncellemeyi deneyin (Ayarlar > yt-dlp Güncelle).'
+                    : 'Bu video yalnızca ayrı video/ses akışları sunuyor. FFmpeg kurun (Ayarlar > Araçları Onar) veya yt-dlp\'yi güncelleyin.';
             }
             dl.status = `error:${dl.errorDetail.substring(0, 100)}`;
             emitDownloadProgress(dl, true);

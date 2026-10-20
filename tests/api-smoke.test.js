@@ -207,6 +207,8 @@ async function statusFor(url, options) {
         assert.ok(styleSrc.includes('app-container[data-sidebar="collapsed"]'), 'style.css katlı sol sütun durumunu tanımlamıyor');
         assert.ok(styleSrc.includes('--scrollbar-thumb'), 'style.css kaydırma çubuğu temasını tanımlamıyor');
         assert.ok(styleSrc.includes('scrollbar-gutter: stable'), 'style.css liste kaydırmasında yer tutucu tanımlamıyor');
+        const serverSrc = fs.readFileSync(path.join(rootDir, 'server.js'), 'utf8');
+        assert.ok(serverSrc.includes('youtube:player_client=android,mweb'), 'FFmpeg yokken YouTube birleşik format istemcisi kullanılmıyor');
         const i18nSrc = fs.readFileSync(path.join(rootDir, 'public', 'i18n.js'), 'utf8');
         for (const key of ['new_download', 'library', 'tools', 'export_list', 'videos', 'no_completed', 'no_active', 'no_results', 'sidebar_collapse', 'sidebar_expand']) {
             assert.ok(i18nSrc.includes(`${key}:`), `i18n "${key}" anahtarı eksik`);
