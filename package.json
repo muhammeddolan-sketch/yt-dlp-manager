@@ -1,6 +1,6 @@
 {
   "name": "yt-dlp-manager",
-  "version": "1.8.9",
+  "version": "1.9.0",
   "description": "Premium YT-DLP GUI Manager",
   "main": "main.js",
   "scripts": {
@@ -30,9 +30,16 @@
     "files": [
       "**/*",
       "!dist",
+      "!dist/**",
+      "!dist2",
+      "!dist2/**",
       "!out",
+      "!out/**",
       "!.git",
-      "!.tmp"
+      "!.tmp",
+      "!.tmp/**",
+      "!.vscode",
+      "!.vscode/**"
     ],
     "win": {
       "target": [
