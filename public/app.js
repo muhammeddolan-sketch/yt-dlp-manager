@@ -53,6 +53,7 @@ window.addEventListener('load', () => {
     const repairTitle = document.getElementById('repairTitle');
     const repairDesc = document.getElementById('repairDesc');
     const repairToolsBtn = document.getElementById('repairToolsBtn');
+    const repairToolsSettingsBtn = document.getElementById('repairToolsSettingsBtn');
     const repairDismissBtn = document.getElementById('repairDismissBtn');
     const appVersionEl = document.getElementById('appVersion');
     const firefoxAddonBtn = document.getElementById('firefoxAddonBtn');
@@ -499,11 +500,14 @@ window.addEventListener('load', () => {
         });
     }
 
-    async function runToolRepair() {
-        if (!repairToolsBtn || repairToolsBtn.disabled) return;
-        repairToolsBtn.disabled = true;
-        const wrenchIcon = repairToolsBtn.querySelector('i');
+    async function runToolRepair(triggerButton = repairToolsBtn) {
+        const repairButtons = [repairToolsBtn, repairToolsSettingsBtn].filter(Boolean);
+        if (!triggerButton || repairButtons.some((btn) => btn.disabled)) return;
+
+        repairButtons.forEach((btn) => { btn.disabled = true; });
+        const wrenchIcon = triggerButton.querySelector('i');
         if (wrenchIcon) wrenchIcon.classList.add('fa-spin');
+        if (toolStatus) toolStatus.textContent = 'Araçlar onarılıyor: yt-dlp kontrol ediliyor...';
         bannerText(repairDesc, 'repair_running', 'Araçlar onarılıyor...');
         repairBanner?.classList.remove('success');
 
@@ -517,6 +521,7 @@ window.addEventListener('load', () => {
             if (!ytRes.ok || ytData.error) throw new Error(ytData.error || 'yt-dlp onarımı başarısız');
 
             // 2) ffmpeg eksikse kur
+            if (toolStatus) toolStatus.textContent = 'FFmpeg kontrol ediliyor...';
             let tools = null;
             try {
                 tools = (await (await fetch('/api/tools')).json());
@@ -534,6 +539,7 @@ window.addEventListener('load', () => {
             }
 
             // 3) doğrula
+            if (toolStatus) toolStatus.textContent = 'Araçlar doğrulanıyor...';
             const verify = (await (await fetch('/api/tools')).json());
             const fixed = verify && verify.ytDlp && verify.ytDlp.version;
             if (!fixed) throw new Error('Onarım doğrulanamadı; Defender yt-dlp.exe dosyasını silmiş olabilir.');
@@ -555,19 +561,21 @@ window.addEventListener('load', () => {
             bannerText(repairDesc, 'repair_done', 'Araçlar onarıldı — indirmeler yeniden deneniyor.');
             repairBanner.classList.add('success');
             playSound('success');
-            if (typeof refreshToolStatus === 'function') refreshToolStatus();
+            await refreshToolStatus();
             setTimeout(hideRepairBanner, 4000);
         } catch (e) {
             playSound('error');
+            if (toolStatus) toolStatus.textContent = `Araçları onarma başarısız: ${e.message}`;
             showRepairBanner(`${typeof t === 'function' ? t('repair_failed') : 'Onarım başarısız:'} ${e.message}`);
         } finally {
             if (wrenchIcon) wrenchIcon.classList.remove('fa-spin');
             bannerText(repairTitle, 'repair_title', 'İndirme araçları eksik');
-            if (repairToolsBtn) repairToolsBtn.disabled = false;
+            repairButtons.forEach((btn) => { btn.disabled = false; });
         }
     }
 
-    if (repairToolsBtn) repairToolsBtn.addEventListener('click', runToolRepair);
+    if (repairToolsBtn) repairToolsBtn.addEventListener('click', () => runToolRepair(repairToolsBtn));
+    if (repairToolsSettingsBtn) repairToolsSettingsBtn.addEventListener('click', () => runToolRepair(repairToolsSettingsBtn));
 
     function markToolMissingFailure(dl) {        const detail = String(dl.errorDetail || dl.status || '').toLowerCase();
         const isMissing = String(dl.status).startsWith('error:yt-dlp-not-found')

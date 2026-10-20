@@ -185,10 +185,11 @@ async function statusFor(url, options) {
             'rateLimitInput', 'maxConcurrentInput', 'historyRetentionInput', 'smartRetryCheck',
             'outputTemplateInput', 'postDownloadCommandInput', 'cookiesBrowserSelect',
             'useBrowserCookiesCheck', 'checkUpdatesBtn', 'updateStatus', 'installUpdateBtn',
-            'toolStatus', 'updateYtDlpBtn', 'installFfmpegBtn'
+            'toolStatus', 'updateYtDlpBtn', 'installFfmpegBtn', 'repairToolsSettingsBtn'
         ]) {
             assert.ok(indexHtml.includes(`id="${id}"`), `ayarlar kontrolü #${id} eksik`);
         }
+        assert.ok(appSrc.includes('repairToolsSettingsBtn'), 'app.js kalıcı Araçları Onar düğmesini bağlamıyor');
         assert.ok(appSrc.includes('activateSettingsTab'), 'app.js ayar sekmelerini yönetmiyor');
         assert.ok(appSrc.includes('syncModalScrollLock'), 'app.js modal açıkken arka plan kaydırmasını kilitlemiyor');
         const styleSrc = fs.readFileSync(path.join(rootDir, 'public', 'style.css'), 'utf8');

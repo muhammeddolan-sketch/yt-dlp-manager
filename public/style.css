@@ -1611,6 +1611,10 @@ body.modal-open {
     align-items: stretch;
 }
 
+.tool-repair-button {
+    margin-top: 8px;
+}
+
 .tool-row .secondary-button[hidden] {
     display: none;
 }
