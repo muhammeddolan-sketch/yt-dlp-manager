@@ -3,18 +3,18 @@
 
     const messages = {
         tr: {
-            download: 'Indir',
-            processing: 'Hazirlaniyor...',
-            playlist: 'Calma Listesi',
-            quick_mode: 'Hizli mod',
+            download: 'İndir',
+            processing: 'Hazırlanıyor...',
+            playlist: 'Çalma Listesi',
+            quick_mode: 'Hızlı mod',
             close: 'Kapat',
-            completed: 'Tamamlandi!',
+            completed: 'Tamamlandı!',
             error: 'Hata!',
-            start_time: 'Baslangic',
-            end_time: 'Bitis (opsiyonel)',
-            subs: 'Altyazi',
-            offline: 'UniGet uygulamasi kapali',
-            open_link: 'Ac'
+            start_time: 'Başlangıç',
+            end_time: 'Bitiş (opsiyonel)',
+            subs: 'Altyazı',
+            offline: 'UniGet uygulaması kapalı',
+            open_link: 'Aç'
         },
         en: {
             download: 'Download',
@@ -349,7 +349,7 @@
             isAppOnline = false;
         }
         statusDot.classList.toggle('online', isAppOnline);
-        btn.title = isAppOnline ? 'UniGet - bagli' : 'UniGet - bagli degil';
+        btn.title = isAppOnline ? 'UniGet - bağlı' : 'UniGet - bağlı değil';
         if (!isAppOnline) showOfflineBanner();
         else hideOfflineBanner();
     }
