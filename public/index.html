@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' ws: wss: https://noembed.com; worker-src 'self' blob:; base-uri 'self';">    <title>UniGet</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' ws: wss: https://noembed.com; worker-src 'self' blob:; object-src 'none'; form-action 'self'; base-uri 'self';">    <title>UniGet</title>
     <link rel="stylesheet" href="vendor/fonts/fonts.css">
     <link rel="stylesheet" href="style.css?v=1.9.3">
     <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
@@ -485,6 +485,21 @@
                                 <small>Instagram, X veya yaş/oturum isteyen sayfalarda yt-dlp'ye tarayıcı oturumunu kullandırır.</small>
                             </span>
                         </label>
+                    </section>
+
+                    <section class="settings-section">
+                        <div class="section-head">
+                            <i class="fas fa-plug"></i>
+                            <div>
+                                <h3>Bağlı tarayıcı yardımcıları</h3>
+                                <p>Onayladığınız eklenti ve userscript'ler yalnızca indirme ekleyebilir; ayarlara erişemez.</p>
+                            </div>
+                        </div>
+                        <div id="pairedClientsStatus" class="tool-status">Yükleniyor...</div>
+                        <button id="revokePairedClientsBtn" class="secondary-button full" type="button">
+                            <i class="fas fa-link-slash"></i>
+                            Tüm Bağlantıları Kaldır
+                        </button>
                     </section>
                 </div>
 

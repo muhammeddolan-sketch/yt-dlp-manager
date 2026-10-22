@@ -1,6 +1,7 @@
 const assert = require('assert');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 
@@ -9,6 +10,9 @@ const appVersion = require(path.join(rootDir, 'package.json')).version;
 const port = String(35000 + Math.floor(Math.random() * 1000));
 const appDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uniget-test-'));
 const downloadsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uniget-downloads-'));
+const apiToken = require('crypto').randomBytes(32).toString('hex');
+const desktopHeaders = { 'X-UniGet-Client': 'desktop', 'X-UniGet-Token': apiToken };
+const desktopJsonHeaders = { 'Content-Type': 'application/json', ...desktopHeaders };
 
 function startServer() {
     return spawn(process.execPath, ['server.js'], {
@@ -17,10 +21,13 @@ function startServer() {
             ...process.env,
             PORT: port,
             APPDATA: appDataDir,
+            HOME: appDataDir,
             UNIGET_DOWNLOAD_DIR: downloadsDir,
+            UNIGET_API_TOKEN: apiToken,
             UNIGET_TEST_DISABLE_RUNNER: '1'
         },
-        stdio: ['ignore', 'pipe', 'pipe']
+        // IPC channel stands in for the Electron main process (pairing dialogs).
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     });
 }
 
@@ -56,7 +63,7 @@ async function statusFor(url, options) {
         assert.strictEqual(healthRes.headers.get('x-content-type-options'), 'nosniff');
         assert.strictEqual(healthRes.headers.get('x-frame-options'), 'DENY');
 
-        const toolsRes = await fetch(`${baseUrl}/api/tools`);
+        const toolsRes = await fetch(`${baseUrl}/api/tools`, { headers: desktopHeaders });
         assert.strictEqual(toolsRes.status, 200);
         const tools = await toolsRes.json();
         assert.ok(tools.ytDlp);
@@ -65,7 +72,7 @@ async function statusFor(url, options) {
         assert.ok('version' in tools.ytDlp);
         assert.ok(['full-quality', 'progressive-fallback'].includes(tools.ffmpeg.mode));
 
-        const emptyDownloadsRes = await fetch(`${baseUrl}/api/downloads`);
+        const emptyDownloadsRes = await fetch(`${baseUrl}/api/downloads`, { headers: desktopHeaders });
         assert.strictEqual(emptyDownloadsRes.status, 200);
         assert.deepStrictEqual(await emptyDownloadsRes.json(), {});
 
@@ -78,20 +85,14 @@ async function statusFor(url, options) {
 
         const invalidUrl = await statusFor(`${baseUrl}/api/download`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-UniGet-Client': 'desktop'
-            },
+            headers: desktopJsonHeaders,
             body: JSON.stringify({ url: 'file:///tmp/video' })
         });
         assert.strictEqual(invalidUrl, 400);
 
         const malformedRes = await fetch(`${baseUrl}/api/download`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-UniGet-Client': 'desktop'
-            },
+            headers: desktopJsonHeaders,
             body: '{not-json'
         });
         assert.strictEqual(malformedRes.status, 400);
@@ -100,30 +101,160 @@ async function statusFor(url, options) {
         assert.ok(!malformedText.includes('body-parser'));
         assert.ok(!malformedText.includes('SyntaxError'));
 
+        // DNS rebinding: a foreign Host header must be rejected even same-origin.
+        const rebindStatus = await new Promise((resolve, reject) => {
+            const req = http.request({
+                host: '127.0.0.1',
+                port,
+                path: '/api/settings',
+                method: 'GET',
+                headers: { Host: `evil.example:${port}` }
+            }, (res) => { res.resume(); resolve(res.statusCode); });
+            req.on('error', reject);
+            req.end();
+        });
+        assert.strictEqual(rebindStatus, 421);
+
+        // Other local web servers are not a trusted origin.
+        const foreignPreflight = await fetch(`${baseUrl}/api/settings`, {
+            method: 'OPTIONS',
+            headers: {
+                Origin: 'http://localhost:8080',
+                'Access-Control-Request-Method': 'POST',
+                'Access-Control-Request-Headers': 'content-type,x-uniget-client'
+            }
+        });
+        await foreignPreflight.text();
+        assert.strictEqual(foreignPreflight.headers.get('access-control-allow-origin'), null);
+
+        // Output templates must not escape the downloads folder.
+        for (const outputTemplate of ['/tmp/evil.%(ext)s', '../evil.%(ext)s', 'C:\\Users\\x\\evil.exe', 'thumbnail:/tmp/x']) {
+            const badTemplate = await statusFor(`${baseUrl}/api/download`, {
+                method: 'POST',
+                headers: desktopJsonHeaders,
+                body: JSON.stringify({ url: 'https://example.com/video', outputTemplate })
+            });
+            assert.strictEqual(badTemplate, 400, `outputTemplate kabul edilmemeli: ${outputTemplate}`);
+            const badSetting = await statusFor(`${baseUrl}/api/settings`, {
+                method: 'POST',
+                headers: desktopJsonHeaders,
+                body: JSON.stringify({ outputTemplate })
+            });
+            assert.strictEqual(badSetting, 400, `ayar outputTemplate kabul edilmemeli: ${outputTemplate}`);
+        }
+
         const invalidTime = await statusFor(`${baseUrl}/api/download`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-UniGet-Client': 'desktop'
-            },
+            headers: desktopJsonHeaders,
             body: JSON.stringify({ url: 'https://example.com/video', startTime: 'bad-time' })
         });
         assert.strictEqual(invalidTime, 400);
 
         const createRes = await fetch(`${baseUrl}/api/download`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-UniGet-Client': 'desktop'
-            },
+            headers: desktopJsonHeaders,
             body: JSON.stringify({
                 url: 'https://example.com/video.mp4',
                 title: 'Smoke Test',
-                quality: '720'
+                quality: '720',
+                thumbnail: 'javascript:alert(1)'
             })
         });
         assert.strictEqual(createRes.status, 200);
         const created = await createRes.json();
+        assert.strictEqual(created.download.thumbnail, null, 'http(s) olmayan thumbnail saklanmamalı');
+
+        // ─── Token authentication ─────────────────────────────────
+        assert.strictEqual(await statusFor(`${baseUrl}/api/settings`), 401, 'tokensız ayar okunmamalı');
+        assert.strictEqual(await statusFor(`${baseUrl}/api/downloads`, { headers: { 'X-UniGet-Client': 'desktop', 'X-UniGet-Token': '0'.repeat(64) } }), 401);
+        assert.strictEqual(await statusFor(`${baseUrl}/api/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-UniGet-Client': 'extension' },
+            body: JSON.stringify({ postDownloadCommand: 'calc' })
+        }), 401, 'tokensız istemci ayar değiştirememeli');
+
+        // Socket.io: namespace connect needs the desktop token.
+        async function socketConnectReply(token) {
+            const socketOrigin = { Origin: baseUrl };
+            const open = await (await fetch(`${baseUrl}/socket.io/?EIO=4&transport=polling`, { headers: socketOrigin })).text();
+            const sid = JSON.parse(open.slice(1)).sid;
+            const pollUrl = `${baseUrl}/socket.io/?EIO=4&transport=polling&sid=${sid}`;
+            await (await fetch(pollUrl, { method: 'POST', headers: { ...socketOrigin, 'Content-Type': 'text/plain' }, body: `40${JSON.stringify({ token })}` })).text();
+            return (await fetch(pollUrl, { headers: socketOrigin })).text();
+        }
+        assert.ok((await socketConnectReply('bad')).includes('auth_required'), 'socket tokensız bağlanmamalı');
+        assert.ok((await socketConnectReply(apiToken)).startsWith('40'), 'socket masaüstü tokenıyla bağlanmalı');
+
+        // ─── Pairing (child IPC plays the Electron main process) ──
+        const extOrigin = 'chrome-extension://abcdefghijklmnop';
+        const extHeaders = { 'Content-Type': 'application/json', 'X-UniGet-Client': 'extension', Origin: extOrigin };
+        const nextPairRequest = () => new Promise((resolve) => child.once('message', resolve));
+        const startPairing = (origin) => fetch(`${baseUrl}/api/pair`, { method: 'POST', headers: { ...extHeaders, Origin: origin }, body: '{}' });
+        async function pollPairing(requestId, origin) {
+            for (let i = 0; i < 50; i++) {
+                const res = await fetch(`${baseUrl}/api/pair/poll`, {
+                    method: 'POST',
+                    headers: { ...extHeaders, Origin: origin },
+                    body: JSON.stringify({ requestId })
+                });
+                const data = await res.json();
+                if (data.status !== 'pending') return data;
+                await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            throw new Error('pairing stayed pending');
+        }
+
+        assert.strictEqual(await statusFor(`${baseUrl}/api/pair`, {
+            method: 'POST', headers: { ...extHeaders, Origin: 'https://evil.example' }, body: '{}'
+        }), 403, 'web sayfası eşleşme isteyememeli');
+
+        let pairMsg = nextPairRequest();
+        const deniedStart = await (await startPairing(extOrigin)).json();
+        let msg = await pairMsg;
+        assert.strictEqual(msg.type, 'pair-request');
+        assert.strictEqual(msg.origin, extOrigin);
+        assert.strictEqual(msg.requestId, deniedStart.requestId);
+        child.send({ type: 'pair-response', requestId: msg.requestId, approved: false });
+        assert.strictEqual((await pollPairing(deniedStart.requestId, extOrigin)).status, 'denied');
+        const retryAfterDeny = await startPairing(extOrigin);
+        await retryAfterDeny.text();
+        assert.strictEqual(retryAfterDeny.status, 429, 'red sonrası tekrar istek hemen açılmamalı');
+
+        const ext2 = 'chrome-extension://qrstuvwxyzabcdef';
+        pairMsg = nextPairRequest();
+        const approvedStart = await (await startPairing(ext2)).json();
+        msg = await pairMsg;
+        child.send({ type: 'pair-response', requestId: msg.requestId, approved: true });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const stolenPoll = await fetch(`${baseUrl}/api/pair/poll`, {
+            method: 'POST', headers: extHeaders, body: JSON.stringify({ requestId: approvedStart.requestId })
+        });
+        await stolenPoll.text();
+        assert.strictEqual(stolenPoll.status, 404, 'başka köken eşleşme tokenını alamamalı');
+        const approved = await pollPairing(approvedStart.requestId, ext2);
+        assert.strictEqual(approved.status, 'approved');
+        assert.ok(/^[a-f0-9]{64}$/.test(approved.token));
+
+        const pairedHeaders = { ...extHeaders, Origin: ext2, 'X-UniGet-Token': approved.token };
+        const pairedDl = await fetch(`${baseUrl}/api/download`, {
+            method: 'POST', headers: pairedHeaders, body: JSON.stringify({ url: 'https://example.com/paired.mp4', title: 'Paired' })
+        });
+        assert.strictEqual(pairedDl.status, 200, 'eşleşmiş eklenti indirme ekleyebilmeli');
+        const pairedCreated = await pairedDl.json();
+        const pairedStatusUrl = `${baseUrl}/api/status/${pairedCreated.id}`;
+        assert.strictEqual(await statusFor(pairedStatusUrl, { headers: pairedHeaders }), 200);
+        assert.strictEqual(await statusFor(`${baseUrl}/api/settings`, {
+            method: 'POST', headers: pairedHeaders, body: JSON.stringify({ postDownloadCommand: 'calc' })
+        }), 403, 'eşleşmiş eklenti ayar değiştirememeli');
+        assert.strictEqual(await statusFor(`${baseUrl}/api/settings`, { headers: pairedHeaders }), 403);
+        assert.strictEqual(await statusFor(`${baseUrl}/api/pair/revoke-all`, { method: 'POST', headers: pairedHeaders }), 403);
+        assert.strictEqual(await statusFor(pairedStatusUrl, { headers: { ...pairedHeaders, Origin: extOrigin } }), 401, 'token kökenine bağlı olmalı');
+
+        const pairedClients = await (await fetch(`${baseUrl}/api/pair/clients`, { headers: desktopHeaders })).json();
+        assert.strictEqual(pairedClients.count, 1);
+        assert.strictEqual(pairedClients.clients[0].origin, ext2);
+        assert.strictEqual(await statusFor(`${baseUrl}/api/pair/revoke-all`, { method: 'POST', headers: desktopHeaders }), 200);
+        assert.strictEqual(await statusFor(pairedStatusUrl, { headers: pairedHeaders }), 401, 'kaldırılan token çalışmamalı');
         assert.ok(created.id);
         assert.ok(created.download);
         assert.strictEqual(created.download.id, created.id);
@@ -131,15 +262,12 @@ async function statusFor(url, options) {
 
         const unknownAction = await statusFor(`${baseUrl}/api/action`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-UniGet-Client': 'desktop'
-            },
+            headers: desktopJsonHeaders,
             body: JSON.stringify({ id: created.id, action: 'not-a-real-action' })
         });
         assert.strictEqual(unknownAction, 400);
 
-        const populatedDownloadsRes = await fetch(`${baseUrl}/api/downloads`);
+        const populatedDownloadsRes = await fetch(`${baseUrl}/api/downloads`, { headers: desktopHeaders });
         assert.strictEqual(populatedDownloadsRes.status, 200);
         const populatedDownloads = await populatedDownloadsRes.json();
         assert.ok(populatedDownloads[created.id]);
@@ -147,7 +275,7 @@ async function statusFor(url, options) {
 
         const diskFile = path.join(downloadsDir, 'Existing Video.mp4');
         fs.writeFileSync(diskFile, Buffer.from('fake-video'));
-        const diskDownloadsRes = await fetch(`${baseUrl}/api/downloads`);
+        const diskDownloadsRes = await fetch(`${baseUrl}/api/downloads`, { headers: desktopHeaders });
         assert.strictEqual(diskDownloadsRes.status, 200);
         const diskDownloads = await diskDownloadsRes.json();
         const diskEntry = Object.values(diskDownloads).find((entry) => entry.filePath === diskFile);
@@ -233,8 +361,14 @@ async function statusFor(url, options) {
             assert.ok(mainSrc.includes(channel), `main.js ${channel} kanalını işlemiyor`);
         }
         assert.ok(mainSrc.includes('setupAutoUpdater'), 'main.js otomatik güncelleyiciyi kurmuyor');
+        assert.ok(preloadSrc.includes('getApiToken:'), 'preload.js API token köprüsünü sunmuyor');
+        assert.ok(mainSrc.includes("'get-api-token'") && mainSrc.includes('pair-request'), 'main.js token/eşleşme kanallarını işlemiyor');
+        assert.ok(indexHtml.includes('id="revokePairedClientsBtn"'), 'bağlantıları kaldır düğmesi eksik');
     } finally {
+        // Wait for exit: the server saves its state while shutting down.
+        const exited = new Promise((resolve) => child.once('exit', resolve));
         child.kill('SIGTERM');
+        await exited;
         fs.rmSync(appDataDir, { recursive: true, force: true });
         fs.rmSync(downloadsDir, { recursive: true, force: true });
     }

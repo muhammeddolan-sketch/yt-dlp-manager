@@ -30,7 +30,41 @@ function isUniGetApiUrl(value) {
     }
 }
 
-async function fetchJsonForContentScript(url, options = {}) {
+const TOKEN_KEY = 'unigetApiToken';
+const PAIR_WAIT_MS = 125000;
+const isTurkish = String(navigator.language || '').toLowerCase().startsWith('tr');
+const pairMessages = isTurkish ? {
+    prompt: 'UniGet uygulamasında bu tarayıcı yardımcısının bağlantısını onaylayın.',
+    denied: 'UniGet bağlantı isteği reddedildi.',
+    timeout: 'UniGet bağlantı isteği zaman aşımına uğradı.',
+    busy: 'UniGet başka bir bağlantı isteğini bekliyor.',
+    unavailable: 'UniGet bağlantı onayı açılamadı. Uygulamayı yeniden başlatın.'
+} : {
+    prompt: 'Approve this browser helper in the UniGet app.',
+    denied: 'UniGet connection request was denied.',
+    timeout: 'UniGet connection request timed out.',
+    busy: 'UniGet is waiting for another connection request.',
+    unavailable: 'UniGet could not show the approval dialog. Restart the app.'
+};
+let pairingPromise = null;
+
+function storageGet(key) {
+    return new Promise(resolve => myBrowser.storage.local.get(key, items => resolve(items ? items[key] : undefined)));
+}
+
+function storageSet(items) {
+    return new Promise(resolve => myBrowser.storage.local.set(items, () => resolve()));
+}
+
+function storageRemove(key) {
+    return new Promise(resolve => myBrowser.storage.local.remove(key, () => resolve()));
+}
+
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function rawFetchJson(url, options = {}, token = null) {
     const method = options.method || 'GET';
     const cacheKey = method === 'GET' && url.includes('https://noembed.com/') ? url : null;
     if (cacheKey && responseCache.has(cacheKey)) {
@@ -40,7 +74,10 @@ async function fetchJsonForContentScript(url, options = {}) {
     }
 
     const headers = { ...(options.headers || { 'Content-Type': 'application/json' }) };
-    if (isUniGetApiUrl(url)) headers['X-UniGet-Client'] = 'extension';
+    if (isUniGetApiUrl(url)) {
+        headers['X-UniGet-Client'] = 'extension';
+        if (token) headers['X-UniGet-Token'] = token;
+    }
     const timeoutMs = Number.isFinite(options.timeout) ? options.timeout : FETCH_TIMEOUT_MS;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -54,7 +91,12 @@ async function fetchJsonForContentScript(url, options = {}) {
         });
         if (!res.ok) {
             const text = await res.text().catch(() => '');
-            throw new Error(`HTTP ${res.status}: ${text}`);
+            let code = '';
+            try { code = JSON.parse(text).error || ''; } catch {}
+            const err = new Error(`HTTP ${res.status}: ${text}`);
+            err.status = res.status;
+            err.code = code;
+            throw err;
         }
         const data = await res.json();
         if (cacheKey) responseCache.set(cacheKey, { ts: Date.now(), data });
@@ -62,6 +104,75 @@ async function fetchJsonForContentScript(url, options = {}) {
     } finally {
         clearTimeout(timeoutId);
     }
+}
+
+// One-time pairing: UniGet shows an approval dialog and hands this extension
+// its own token, which only works for the download endpoints.
+function pairWithApp(base) {
+    if (pairingPromise) return pairingPromise;
+    pairingPromise = (async () => {
+        const jsonPost = (path, body) => rawFetchJson(`${base}${path}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            timeout: 10000
+        });
+        let start;
+        try {
+            start = await jsonPost('/api/pair', {});
+        } catch (err) {
+            if (err.code === 'pairing_denied') throw new Error(pairMessages.denied);
+            if (err.code === 'pairing_busy') throw new Error(pairMessages.busy);
+            if (err.code === 'pairing_unavailable') throw new Error(pairMessages.unavailable);
+            throw err;
+        }
+        if (!start?.requestId) throw new Error(pairMessages.unavailable);
+        notify(pairMessages.prompt);
+        const deadline = Date.now() + PAIR_WAIT_MS;
+        while (Date.now() < deadline) {
+            await delay(1000);
+            // Extension API calls also keep the MV3 service worker alive.
+            await storageGet(TOKEN_KEY);
+            let poll;
+            try {
+                poll = await jsonPost('/api/pair/poll', { requestId: start.requestId });
+            } catch (err) {
+                if (err.status === 404) throw new Error(pairMessages.timeout);
+                throw err;
+            }
+            if (poll?.status === 'approved' && poll.token) {
+                await storageSet({ [TOKEN_KEY]: poll.token });
+                return poll.token;
+            }
+            if (poll?.status === 'denied') throw new Error(pairMessages.denied);
+        }
+        throw new Error(pairMessages.timeout);
+    })().finally(() => {
+        pairingPromise = null;
+    });
+    return pairingPromise;
+}
+
+async function fetchJsonForContentScript(url, options = {}) {
+    if (!isUniGetApiUrl(url)) return rawFetchJson(url, options);
+    const token = await storageGet(TOKEN_KEY);
+    try {
+        return await rawFetchJson(url, options, token);
+    } catch (err) {
+        if (err.status !== 401) throw err;
+        await storageRemove(TOKEN_KEY);
+        const freshToken = await pairWithApp(new URL(url).origin);
+        return rawFetchJson(url, options, freshToken);
+    }
+}
+
+function notify(message) {
+    myBrowser.notifications.create({
+        type: 'basic',
+        iconUrl: 'icon48.png',
+        title: 'UniGet',
+        message
+    });
 }
 
 myBrowser.runtime.onInstalled.addListener(() => {
@@ -83,7 +194,7 @@ myBrowser.contextMenus.onClicked.addListener((info, tab) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url }),
-            timeout: 25000
+            timeout: 32000
         })
         .then(data => {
             if (!data || data.error) throw new Error(data?.error || 'Media could not be verified');

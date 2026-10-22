@@ -331,8 +331,14 @@
         }
     }
 
+    // Most pages have no video at all: skip all positioning work there.
+    function pageHasVideo() {
+        return document.getElementsByTagName('video').length > 0;
+    }
+
     function requestPositionUpdate() {
         if (document.hidden || positionRaf) return;
+        if (!pageHasVideo() && popup.style.display === 'none' && btn.style.display === 'none') return;
         positionRaf = requestAnimationFrame(updatePosition);
     }
 
@@ -350,7 +356,8 @@
         }
         statusDot.classList.toggle('online', isAppOnline);
         btn.title = isAppOnline ? 'UniGet - bağlı' : 'UniGet - bağlı değil';
-        if (!isAppOnline) showOfflineBanner();
+        // Only where UniGet is useful: not as a banner on every site visited.
+        if (!isAppOnline && (pageHasVideo() || popup.style.display !== 'none')) showOfflineBanner();
         else hideOfflineBanner();
     }
 
@@ -379,7 +386,9 @@
     function scheduleHealthCheck() {
         clearTimeout(healthTimer);
         healthTimer = setTimeout(async () => {
-            await checkAppHealth();
+            // Every tab runs this script; pages without a video do not need
+            // to wake the extension and ping the app.
+            if (!document.hidden && pageHasVideo()) await checkAppHealth();
             scheduleHealthCheck();
         }, document.hidden ? 45000 : 15000);
     }
@@ -408,7 +417,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url }),
-            timeout: 25000
+            timeout: 32000
         });
         if (!result || result.error) throw new Error(result?.error || 'Media could not be verified');
         if (result.downloadable === false || result.mediaType === 'image') {
@@ -488,6 +497,8 @@
         btnStart.innerText = t('processing');
 
         try {
+            // Health may never have run on this page (no video at load, context menu).
+            if (!isAppOnline) await checkAppHealth();
             if (!isAppOnline) throw new Error(t('offline'));
             await validateMediaBeforeDownload(targetUrl);
             const res = await bgFetch(`${API_BASE}/api/download`, {
@@ -538,8 +549,11 @@
         requestPositionUpdate();
     });
 
+    // Page scripts can dispatch synthetic clicks on our injected controls;
+    // only real user input may queue downloads or trigger UniGet pairing.
     btn.onclick = (e) => {
         e.stopPropagation();
+        if (!e.isTrusted) return;
         const video = getBestVideo();
         targetUrl = getCanonicalMediaUrl(video);
         if (quickChk.checked) {
@@ -550,12 +564,12 @@
         openPopup(btn.getBoundingClientRect(), video, targetUrl);
     };
 
-    btnStart.onclick = () => queueDownload();
+    btnStart.onclick = (e) => { if (e.isTrusted) queueDownload(); };
 
     // Enter anywhere in the panel starts the download, like a dialog
     [qualitySelect, startTimeInp, endTimeInp].forEach((el) => {
         el.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && e.isTrusted) {
                 e.preventDefault();
                 btnStart.disabled ? null : queueDownload();
             }
@@ -608,6 +622,6 @@
 
     requestPositionUpdate();
     startPositionFallback();
-    checkAppHealth();
+    if (pageHasVideo()) checkAppHealth();
     scheduleHealthCheck();
 })();

@@ -15,20 +15,39 @@ const APP_VERSION = require('./package.json').version;
 const app = express();
 app.disable('x-powered-by');
 const server = http.createServer(app);
+const PORT = Number.parseInt(process.env.PORT || '3000', 10) || 3000;
+
+function isLoopbackHostname(host) {
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+}
+
+// DNS rebinding guard: a hostile site can point its own domain at 127.0.0.1
+// and then talk to us "same-origin". Only accept loopback Host headers.
+function isAllowedHostHeader(hostHeader) {
+    if (typeof hostHeader !== 'string' || !hostHeader) return false;
+    try {
+        const parsed = new URL(`http://${hostHeader}`);
+        const port = parsed.port ? Number(parsed.port) : 80;
+        return isLoopbackHostname(parsed.hostname) && port === PORT;
+    } catch {
+        return false;
+    }
+}
+
 function isAllowedOrigin(origin) {
     if (!origin) return false;
     try {
         const parsed = new URL(origin);
         const host = parsed.hostname;
-        const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-        if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && isLoopback) return true;
+        // Only our own UI origin; other local web servers are not trusted.
+        if (parsed.protocol === 'http:' && isLoopbackHostname(host) && Number(parsed.port || 80) === PORT) return true;
         if (parsed.protocol === 'chrome-extension:' || parsed.protocol === 'moz-extension:') return true;
     } catch {}
     return false;
 }
 
 const corsOptions = {
-    allowedHeaders: ['Content-Type', 'X-UniGet-Client'],
+    allowedHeaders: ['Content-Type', 'X-UniGet-Client', 'X-UniGet-Token'],
     methods: ['GET', 'POST', 'OPTIONS'],
     origin(origin, callback) {
         callback(null, isAllowedOrigin(origin));
@@ -38,7 +57,7 @@ const corsOptions = {
 const io = new Server(server, {
     cors: corsOptions,
     allowRequest(req, callback) {
-        callback(null, isAllowedOrigin(req.headers.origin));
+        callback(null, isAllowedHostHeader(req.headers.host) && isAllowedOrigin(req.headers.origin));
     },
     transports: ['websocket', 'polling'],
     perMessageDeflate: false,
@@ -46,7 +65,6 @@ const io = new Server(server, {
     pingTimeout: 20000
 });
 
-const PORT = Number.parseInt(process.env.PORT || '3000', 10) || 3000;
 const IS_TEST_RUNNER_DISABLED = process.env.UNIGET_TEST_DISABLE_RUNNER === '1';
 const homeDir = os.homedir();
 
@@ -64,21 +82,25 @@ function getConfigPath() {
     return path.join(homeDir, '.config', 'uniget', 'config.json');
 }
 
-let appConfig = {
-    downloadDir: (() => {
+const DEFAULT_OUTPUT_TEMPLATE = '%(title).180B [%(id)s].%(ext)s';
+
+const DEFAULT_DOWNLOAD_DIR = (() => {
         if (process.platform === 'win32') return path.join(homeDir, 'Videos', 'IDM');
         // Turkish/English folder variance on some Linux desktops
         const tr = path.join(homeDir, 'Videolar', 'IDM');
         const en = path.join(homeDir, 'Videos', 'IDM');
         return fs.existsSync(path.join(homeDir, 'Videolar')) ? tr : en;
-    })(),
+})();
+
+let appConfig = {
+    downloadDir: DEFAULT_DOWNLOAD_DIR,
     powerMode: 'auto',
     rateLimitKbps: 0,
     smartRetry: true,
     lowNoiseNotifications: true,
     useBrowserCookies: false,
     cookiesBrowser: 'chrome',
-    outputTemplate: '%(title).180B [%(id)s].%(ext)s',
+    outputTemplate: DEFAULT_OUTPUT_TEMPLATE,
     maxConcurrent: 5,
     sleepAfterDownload: false,
     historyRetentionDays: 30,
@@ -102,11 +124,29 @@ try {
 if (isSafeDownloadDir(process.env.UNIGET_DOWNLOAD_DIR)) {
     appConfig.downloadDir = process.env.UNIGET_DOWNLOAD_DIR;
 }
+// A hand-edited or stale config must not break startup or escape validation.
+if (!isSafeDownloadDir(appConfig.downloadDir)) appConfig.downloadDir = DEFAULT_DOWNLOAD_DIR;
+appConfig.downloadDir = appConfig.downloadDir.trim();
+if (!normalizeOutputTemplate(appConfig.outputTemplate)) appConfig.outputTemplate = DEFAULT_OUTPUT_TEMPLATE;
 
 let DOWNLOADS_DIR = appConfig.downloadDir;
 
-if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+// An unplugged drive or a read-only folder must not keep the server from
+// starting: fall back to the default folder.
+try {
+    fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+} catch (e) {
+    console.warn(`Download folder unavailable (${DOWNLOADS_DIR}): ${e?.message || e}`);
+    DOWNLOADS_DIR = DEFAULT_DOWNLOAD_DIR;
+    try { fs.mkdirSync(DOWNLOADS_DIR, { recursive: true }); } catch {}
+}
 
+app.use((req, res, next) => {
+    if (!isAllowedHostHeader(req.headers.host)) {
+        return res.status(421).json({ error: 'Invalid Host header' });
+    }
+    next();
+});
 app.use(cors(corsOptions));
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -122,6 +162,187 @@ app.use('/api', (req, res, next) => {
         return res.status(403).json({ error: 'UniGet client header is required' });
     }
     next();
+});
+
+// ─── Client authentication ────────────────────────────────────────
+// Origin checks and X-UniGet-Client only stop web pages; any installed browser
+// extension can send those. Every API call therefore needs a secret token:
+// the desktop UI gets it from the Electron main process, browser helpers pair
+// once with an in-app approval and may only use the download endpoints.
+const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
+const PAIR_TIMEOUT_MS = 120000;
+const PAIR_DENY_COOLDOWN_MS = 60000;
+
+function getApiTokenPath() {
+    return path.join(getAppDataDir(), 'api-token');
+}
+
+function getPairedClientsPath() {
+    return path.join(getAppDataDir(), 'paired-clients.json');
+}
+
+function loadOrCreateDesktopToken() {
+    if (TOKEN_PATTERN.test(process.env.UNIGET_API_TOKEN || '')) return process.env.UNIGET_API_TOKEN;
+    const tokenPath = getApiTokenPath();
+    try {
+        const existing = fs.readFileSync(tokenPath, 'utf8').trim();
+        if (TOKEN_PATTERN.test(existing)) return existing;
+    } catch {}
+    const token = crypto.randomBytes(32).toString('hex');
+    try {
+        fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
+        fs.writeFileSync(tokenPath, token, { mode: 0o600 });
+    } catch (e) {
+        console.warn('API token could not be saved:', e?.message || e);
+    }
+    return token;
+}
+
+const DESKTOP_TOKEN = loadOrCreateDesktopToken();
+
+function hashToken(token) {
+    return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+// Paired tokens are stored hashed: sha256(token) -> { origin, client, createdAt }
+let pairedClients = {};
+try {
+    const saved = JSON.parse(fs.readFileSync(getPairedClientsPath(), 'utf8'));
+    if (saved && typeof saved === 'object') pairedClients = saved;
+} catch {}
+
+function savePairedClients() {
+    try {
+        const p = getPairedClientsPath();
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, JSON.stringify(pairedClients, null, 2), { mode: 0o600 });
+    } catch (e) {
+        console.warn('Paired clients could not be saved:', e?.message || e);
+    }
+}
+
+function tokensEqual(a, b) {
+    const left = Buffer.from(String(a));
+    const right = Buffer.from(String(b));
+    return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function authenticateClient(token, origin) {
+    if (typeof token !== 'string' || !TOKEN_PATTERN.test(token)) return null;
+    if (tokensEqual(token, DESKTOP_TOKEN)) return { role: 'desktop' };
+    const entry = pairedClients[hashToken(token)];
+    if (!entry) return null;
+    // A token is bound to the extension origin that paired it.
+    if (origin && entry.origin && origin !== entry.origin) return null;
+    return { role: 'paired', origin: entry.origin };
+}
+
+const PUBLIC_API_ROUTES = [
+    ['GET', /^\/health$/],
+    ['POST', /^\/pair$/],
+    ['POST', /^\/pair\/poll$/]
+];
+// Least privilege for browser helpers: queue and inspect downloads only.
+const PAIRED_CLIENT_ROUTES = [
+    ['POST', /^\/info$/],
+    ['POST', /^\/validate-media$/],
+    ['POST', /^\/download$/],
+    ['GET', /^\/status\/[^/]+$/]
+];
+
+function matchesRoute(routes, req) {
+    return routes.some(([method, pattern]) => method === req.method && pattern.test(req.path));
+}
+
+app.use('/api', (req, res, next) => {
+    if (req.method === 'OPTIONS' || matchesRoute(PUBLIC_API_ROUTES, req)) return next();
+    const auth = authenticateClient(req.get('X-UniGet-Token'), req.headers.origin);
+    if (!auth) return res.status(401).json({ error: 'auth_required' });
+    if (auth.role !== 'desktop' && !matchesRoute(PAIRED_CLIENT_ROUTES, req)) {
+        return res.status(403).json({ error: 'not_allowed' });
+    }
+    next();
+});
+
+// Pairing: the helper asks, the Electron main process shows an approval
+// dialog, and the helper polls with its request id until it gets a token.
+const pendingPairings = new Map(); // requestId -> { origin, client, status, token, expiresAt }
+const pairDeniedUntil = new Map(); // origin -> timestamp
+
+function prunePairings() {
+    const now = Date.now();
+    for (const [id, pairing] of pendingPairings) {
+        if (pairing.expiresAt < now) pendingPairings.delete(id);
+    }
+    for (const [origin, until] of pairDeniedUntil) {
+        if (until < now) pairDeniedUntil.delete(origin);
+    }
+}
+
+app.post('/api/pair', (req, res) => {
+    const origin = String(req.headers.origin || '');
+    // Web pages (including our own UI opened in a browser) never pair.
+    if (/^https?:/i.test(origin)) return res.status(403).json({ error: 'pairing_not_allowed' });
+    if (typeof process.send !== 'function' || !process.connected) {
+        return res.status(503).json({ error: 'pairing_unavailable' });
+    }
+    prunePairings();
+    if (pairDeniedUntil.has(origin)) return res.status(429).json({ error: 'pairing_denied' });
+    for (const [id, pairing] of pendingPairings) {
+        if (pairing.status !== 'pending') continue;
+        if (pairing.origin === origin) return res.status(202).json({ requestId: id, expiresInMs: pairing.expiresAt - Date.now() });
+        return res.status(429).json({ error: 'pairing_busy' });
+    }
+    const client = req.get('X-UniGet-Client') === 'userscript' ? 'userscript' : 'extension';
+    const requestId = crypto.randomBytes(16).toString('hex');
+    pendingPairings.set(requestId, { origin, client, status: 'pending', token: null, expiresAt: Date.now() + PAIR_TIMEOUT_MS });
+    try {
+        process.send({ type: 'pair-request', requestId, origin, client });
+    } catch {
+        pendingPairings.delete(requestId);
+        return res.status(503).json({ error: 'pairing_unavailable' });
+    }
+    res.status(202).json({ requestId, expiresInMs: PAIR_TIMEOUT_MS });
+});
+
+app.post('/api/pair/poll', (req, res) => {
+    prunePairings();
+    const requestId = typeof req.body.requestId === 'string' ? req.body.requestId : '';
+    const pairing = pendingPairings.get(requestId);
+    if (!pairing || pairing.origin !== String(req.headers.origin || '')) {
+        return res.status(404).json({ status: 'expired' });
+    }
+    if (pairing.status === 'pending') return res.json({ status: 'pending' });
+    pendingPairings.delete(requestId);
+    if (pairing.status === 'approved') return res.json({ status: 'approved', token: pairing.token });
+    res.json({ status: 'denied' });
+});
+
+process.on('message', (msg) => {
+    if (!msg || msg.type !== 'pair-response') return;
+    const pairing = pendingPairings.get(msg.requestId);
+    if (!pairing || pairing.status !== 'pending') return;
+    if (msg.approved === true) {
+        const token = crypto.randomBytes(32).toString('hex');
+        pairedClients[hashToken(token)] = { origin: pairing.origin, client: pairing.client, createdAt: new Date().toISOString() };
+        savePairedClients();
+        pairing.status = 'approved';
+        pairing.token = token;
+    } else {
+        pairing.status = 'denied';
+        pairDeniedUntil.set(pairing.origin, Date.now() + PAIR_DENY_COOLDOWN_MS);
+    }
+});
+
+app.get('/api/pair/clients', (req, res) => {
+    const clients = Object.values(pairedClients).map(({ origin, client, createdAt }) => ({ origin, client, createdAt }));
+    res.json({ count: clients.length, clients });
+});
+
+app.post('/api/pair/revoke-all', (req, res) => {
+    pairedClients = {};
+    savePairedClients();
+    res.json({ success: true });
 });
 // Static assets: HTML/JS/CSS must revalidate so an app update never reuses stale UI code.
 // Images/fonts keep the long cache.
@@ -269,8 +490,9 @@ app.post('/api/extension/open-folder', (req, res) => {
     }
 });
 
-let downloads = {};
-const progressEmitState = {};
+// Null-prototype maps: ids come from requests ("__proto__", "constructor").
+let downloads = Object.create(null);
+const progressEmitState = Object.create(null);
 
 function parseHttpUrl(value) {
     if (typeof value !== 'string') return null;
@@ -389,6 +611,41 @@ function normalizeTitle(value) {
     return value.trim().slice(0, 300) || 'processed';
 }
 
+// yt-dlp's -o accepts absolute paths and "..", which would escape --paths home
+// (e.g. dropping a file into the Startup folder). Keep templates relative.
+function normalizeOutputTemplate(value) {
+    if (typeof value !== 'string') return null;
+    const tpl = value.trim().slice(0, 200);
+    if (!tpl) return null;
+    if (/[\0\r\n]/.test(tpl)) return null;
+    if (path.isAbsolute(tpl) || path.win32.isAbsolute(tpl) || /^[a-zA-Z]:/.test(tpl) || /^[\\/~]/.test(tpl)) return null;
+    if (tpl.split(/[\\/]+/).some(part => part === '..')) return null;
+    // Output-type prefixes ("thumbnail:/abs/path") bypass the checks above.
+    if (/^(?:subtitle|thumbnail|description|annotation|infojson|link|pl_thumbnail|pl_description|pl_infojson|chapter|pl_video)\s*:/i.test(tpl)) return null;
+    return tpl;
+}
+
+function normalizeThumbnail(value) {
+    const url = parseHttpUrl(value);
+    return url && url.length <= 2048 ? url : null;
+}
+
+function normalizeSubtitleLangs(value) {
+    if (typeof value !== 'string') return '';
+    const langs = value.trim().slice(0, 120);
+    return /^[\w,.*+\-]*$/.test(langs) ? langs : '';
+}
+
+// Quote a value so the platform shell treats it as one literal argument.
+function shellQuote(value) {
+    const str = String(value);
+    if (process.platform === 'win32') {
+        // Windows paths cannot contain '"'; also neutralize %VAR% expansion.
+        return `"${str.replace(/"/g, '').replace(/%/g, '"^%"')}"`;
+    }
+    return `'${str.replace(/'/g, `'\\''`)}'`;
+}
+
 function isSafeDownloadDir(value) {
     if (typeof value !== 'string') return false;
     const dir = value.trim();
@@ -413,9 +670,42 @@ function isYouTubeUrl(value) {
     }
 }
 
-// ─── Persist completed/failed downloads across restarts ──────────
+// ─── Persist downloads across restarts ───────────────────────────
 function getDownloadsStatePath() {
     return path.join(getAppDataDir(), 'downloads-state.json');
+}
+
+function getClearedFilesPath() {
+    return path.join(getAppDataDir(), 'cleared-files.json');
+}
+
+// Write via a temp file so a crash mid-write cannot corrupt the history.
+function writeJsonAtomic(filePath, data) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const tmp = `${filePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, filePath);
+}
+
+// Paths are case-insensitive on Windows/macOS only.
+function pathKey(filePath) {
+    const resolved = path.resolve(filePath);
+    return process.platform === 'win32' || process.platform === 'darwin' ? resolved.toLowerCase() : resolved;
+}
+
+// Runtime-only fields (child process, timers, retry flags) never leave the server.
+function stripInternal(dl) {
+    const out = {};
+    for (const key of Object.keys(dl)) {
+        if (key === 'process' || key.startsWith('_')) continue;
+        out[key] = dl[key];
+    }
+    return out;
+}
+
+function isTerminalStatus(status) {
+    const st = String(status || '');
+    return st === 'completed' || st === 'failed' || st.startsWith('error:');
 }
 
 function loadPersistedDownloads() {
@@ -423,12 +713,17 @@ function loadPersistedDownloads() {
         const p = getDownloadsStatePath();
         if (!fs.existsSync(p)) return;
         const saved = JSON.parse(fs.readFileSync(p, 'utf8'));
-        for (const id in saved) {
+        if (!saved || typeof saved !== 'object') return;
+        for (const id of Object.keys(saved)) {
             const dl = saved[id];
-            // Only restore terminal states — don't re-run active downloads
+            if (!dl || typeof dl !== 'object' || dl.id !== id) continue;
             const st = String(dl.status || '');
-            if (st === 'completed' || st === 'failed' || st.startsWith('error:') || st === 'scheduled') {
-                downloads[id] = { ...dl, process: null, _timer: null };
+            if (isTerminalStatus(st) || st === 'scheduled') {
+                downloads[id] = stripInternal(dl);
+            } else {
+                // Interrupted by quit/crash: keep it resumable (yt-dlp --continue
+                // picks up the partial file) instead of silently dropping it.
+                downloads[id] = { ...stripInternal(dl), status: 'paused', speed: '0 KiB/s', eta: '--' };
             }
         }
     } catch(e) {}
@@ -440,19 +735,32 @@ function persistDownloadsState() {
     _stateWriteTimer = setTimeout(() => {
         try {
             const toSave = {};
-            for (const id in downloads) {
-                const { process: _p, _spawning, _timer, ...rest } = downloads[id];
-                toSave[id] = rest;
-            }
-            const p = getDownloadsStatePath();
-            fs.mkdirSync(path.dirname(p), { recursive: true });
-            fs.writeFileSync(p, JSON.stringify(toSave, null, 2));
+            for (const id in downloads) toSave[id] = stripInternal(downloads[id]);
+            writeJsonAtomic(getDownloadsStatePath(), toSave);
         } catch(e) {}
     }, 600);
 }
 
+// Files the user removed from the list stay on disk; remember them so the
+// disk scan does not bring them back.
+let clearedFiles = new Set();
+try {
+    const saved = JSON.parse(fs.readFileSync(getClearedFilesPath(), 'utf8'));
+    if (Array.isArray(saved)) clearedFiles = new Set(saved.filter(v => typeof v === 'string'));
+} catch {}
+
+function saveClearedFiles() {
+    clearedFiles = new Set(Array.from(clearedFiles).slice(-5000));
+    try { writeJsonAtomic(getClearedFilesPath(), Array.from(clearedFiles)); } catch {}
+}
+
+function getHistoryCutoffMs() {
+    const days = Number.parseInt(appConfig.historyRetentionDays, 10);
+    return Number.isFinite(days) && days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0;
+}
+
 function getFileDownloadId(filePath) {
-    return `file-${crypto.createHash('sha1').update(path.resolve(filePath).toLowerCase()).digest('hex').slice(0, 20)}`;
+    return `file-${crypto.createHash('sha1').update(pathKey(filePath)).digest('hex').slice(0, 20)}`;
 }
 
 function getTitleFromFilePath(filePath) {
@@ -462,12 +770,17 @@ function getTitleFromFilePath(filePath) {
 
 function getDownloadFilesFromDisk() {
     const results = [];
-    const maxFiles = 300;
+    const maxResults = 300;
+    // Walk more than we show so the list really holds the newest files,
+    // not whichever 300 the directory walk happened to reach first.
+    const maxScanned = 5000;
     const maxDepth = 2;
+    const cutoff = getHistoryCutoffMs();
+    let scanned = 0;
     try {
         if (!DOWNLOADS_DIR || !fs.existsSync(DOWNLOADS_DIR)) return results;
         const stack = [{ dir: DOWNLOADS_DIR, depth: 0 }];
-        while (stack.length && results.length < maxFiles) {
+        while (stack.length && scanned < maxScanned) {
             const { dir, depth } = stack.pop();
             let entries = [];
             try {
@@ -482,53 +795,47 @@ function getDownloadFilesFromDisk() {
                     continue;
                 }
                 if (!entry.isFile() || !isFinalMediaFile(full)) continue;
+                if (++scanned > maxScanned) break;
+                if (clearedFiles.has(pathKey(full))) continue;
                 let stat;
                 try {
                     stat = fs.statSync(full);
                 } catch(e) {
                     continue;
                 }
-                if (!stat.size) continue;
+                if (!stat.size || (cutoff && stat.mtimeMs < cutoff)) continue;
                 results.push({ filePath: full, size: stat.size, mtimeMs: stat.mtimeMs });
-                if (results.length >= maxFiles) break;
             }
         }
     } catch(e) {}
-    return results.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return results.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, maxResults);
 }
 
-function cleanupPartialFiles() {
-    try {
-        const partialExts = new Set(['.part', '.ytdl', '.temp', '.tmp']);
-        const stack = [{ dir: DOWNLOADS_DIR, depth: 0 }];
-        while (stack.length) {
-            const { dir, depth } = stack.pop();
-            let entries = [];
-            try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
-            for (const entry of entries) {
-                const full = path.join(dir, entry.name);
-                if (entry.isDirectory()) {
-                    if (depth < 2) stack.push({ dir: full, depth: depth + 1 });
-                    continue;
-                }
-                const ext = path.extname(entry.name).toLowerCase();
-                if (!partialExts.has(ext)) continue;
-                try { fs.unlinkSync(full); } catch {}
-            }
-        }
-    } catch {}
+// yt-dlp keeps partial files in our own temp folder (--paths temp:). The
+// user's download folder is never touched: it may be ~/Downloads with other
+// apps' .part/.tmp files. Old leftovers go; recent ones stay so paused
+// downloads can still resume.
+function cleanupTempFiles() {
+    const dir = getTempDownloadsDir();
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    let entries = [];
+    try { entries = fs.readdirSync(dir); } catch { return; }
+    for (const name of entries) {
+        const full = path.join(dir, name);
+        try {
+            if (fs.statSync(full).mtimeMs < cutoff) fs.rmSync(full, { recursive: true, force: true });
+        } catch {}
+    }
 }
 
 function cleanupOldHistory() {
     try {
-        const days = Number.parseInt(appConfig.historyRetentionDays, 10);
-        if (!Number.isFinite(days) || days <= 0) return;
-        const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+        const cutoff = getHistoryCutoffMs();
+        if (!cutoff) return;
         let changed = false;
         for (const id of Object.keys(downloads)) {
             const dl = downloads[id];
-            const st = String(dl?.status || '');
-            if (!['completed', 'failed'].includes(st) && !st.startsWith('error:')) continue;
+            if (!isTerminalStatus(dl?.status)) continue;
             const ts = dl.completedAt ? Date.parse(dl.completedAt) : 0;
             if (ts && ts < cutoff) {
                 delete downloads[id];
@@ -560,11 +867,11 @@ function syncDownloadsFromDisk(force = false) {
 
     for (const id in downloads) {
         const filePath = downloads[id]?.filePath;
-        if (filePath) knownPaths.set(path.resolve(filePath).toLowerCase(), id);
+        if (filePath) knownPaths.set(pathKey(filePath), id);
     }
 
     for (const file of diskFiles) {
-        const resolved = path.resolve(file.filePath).toLowerCase();
+        const resolved = pathKey(file.filePath);
         const existingId = knownPaths.get(resolved);
         if (existingId) {
             const existing = downloads[existingId];
@@ -626,24 +933,157 @@ function syncDownloadsFromDisk(force = false) {
 loadPersistedDownloads();
 syncDownloadsFromDisk(true);
 syncExtensionFolder(false);
-cleanupPartialFiles();
+cleanupTempFiles();
 cleanupOldHistory();
 schedulePendingDownloads();
 
-// ─── Request Deduplication & Cache ────────────────────────────────
-const infoCache = new Map(); // Simple cache: URL -> Promise
-const MAX_INFO_CACHE_SIZE = 20;
+// ─── JavaScript runtime for yt-dlp ────────────────────────────────
+// yt-dlp needs a JS runtime (Node >= 22) for YouTube's challenges, and Node
+// is usually not installed on Windows. Under Electron this server runs on
+// the app binary in Node mode (ELECTRON_RUN_AS_NODE), which yt-dlp accepts
+// as "node"; hand it that binary so downloads do not depend on a system Node.
+const IS_ELECTRON_NODE = !!process.versions.electron;
 
-function addToInfoCache(url, promise) {
-    if (infoCache.size >= MAX_INFO_CACHE_SIZE) {
-        const firstKey = infoCache.keys().next().value;
-        infoCache.delete(firstKey);
+function getJsRuntimeArg() {
+    return IS_ELECTRON_NODE ? `node:${process.execPath}` : 'node';
+}
+
+function getYtDlpSpawnOptions(extra = {}) {
+    const options = { windowsHide: true, ...extra };
+    if (IS_ELECTRON_NODE) options.env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
+    return options;
+}
+
+// ─── Media info cache ─────────────────────────────────────────────
+// /api/info and /api/validate-media both need a yt-dlp extraction, which
+// takes seconds. Concurrent and repeated lookups for one URL (validate then
+// info from the helpers, double clicks) share a single run for 2 minutes.
+const MEDIA_INFO_TTL_MS = 2 * 60 * 1000;
+const MEDIA_INFO_TIMEOUT_MS = 28000;
+const MAX_MEDIA_INFO_CACHE = 30;
+const MAX_MEDIA_INFO_BYTES = 16 * 1024 * 1024;
+const mediaInfoCache = new Map(); // url -> { promise, expiresAt }
+
+async function extractMediaInfo(url) {
+    const ytDlpCmd = await ensureYtDlpAvailable();
+    const args = ['--js-runtimes', getJsRuntimeArg(), '-J', '--no-playlist'];
+    appendBrowserCookieArgs(args);
+    args.push('--', url);
+    return new Promise((resolve) => {
+        const chunks = [];
+        let bytes = 0;
+        let stderr = '';
+        let timedOut = false;
+        let timer = null;
+        let settled = false;
+        const finish = (result) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(result);
+        };
+        let proc;
+        try {
+            proc = spawn(ytDlpCmd, args, getYtDlpSpawnOptions());
+        } catch (e) {
+            return finish({ info: null, code: -1, stderr: String(e?.message || e), timedOut });
+        }
+        timer = setTimeout(() => {
+            timedOut = true;
+            killProcessTree(proc);
+        }, MEDIA_INFO_TIMEOUT_MS);
+        proc.stdout.on('data', (data) => {
+            bytes += data.length;
+            if (bytes <= MAX_MEDIA_INFO_BYTES) chunks.push(data);
+        });
+        proc.stderr.setEncoding('utf8');
+        proc.stderr.on('data', (data) => {
+            if (stderr.length < 4096) stderr += data;
+        });
+        // Without this listener a missing yt-dlp (ENOENT) crashes the server.
+        proc.once('error', (err) => finish({
+            info: null,
+            code: -1,
+            stderr: err?.code === 'ENOENT' ? 'yt-dlp bulunamadı. Ayarlar > Araçları Onar ile kurun.' : String(err?.message || err),
+            timedOut
+        }));
+        proc.once('close', (code) => finish({
+            // Decode once: per-chunk decoding garbles multi-byte titles.
+            info: bytes <= MAX_MEDIA_INFO_BYTES ? parseYtDlpJson(Buffer.concat(chunks).toString('utf8')) : null,
+            code,
+            stderr,
+            timedOut
+        }));
+    });
+}
+
+function summarizeMediaInfo(url, result) {
+    if (result.info) {
+        const data = buildInfoResponse(url, result.info);
+        if (data.downloadable || result.code === 0) return { ok: true, data };
     }
-    infoCache.set(url, promise);
+    let error = 'Media info could not be parsed';
+    if (result.timedOut) error = 'Media verification timed out';
+    else if (result.code !== 0) error = getUsefulYtDlpError(result.stderr, 'Media could not be verified');
+    return { ok: false, error };
+}
+
+function getMediaInfo(url) {
+    const now = Date.now();
+    const cached = mediaInfoCache.get(url);
+    if (cached && cached.expiresAt > now) return cached.promise;
+    mediaInfoCache.delete(url);
+    if (mediaInfoCache.size >= MAX_MEDIA_INFO_CACHE) mediaInfoCache.delete(mediaInfoCache.keys().next().value);
+    const promise = extractMediaInfo(url).then(
+        (result) => summarizeMediaInfo(url, result),
+        (e) => ({ ok: false, error: e?.message || 'yt-dlp failed' })
+    );
+    const entry = { promise, expiresAt: now + MEDIA_INFO_TTL_MS };
+    mediaInfoCache.set(url, entry);
+    // Failures are not cached: a retry after repairing tools must run again.
+    promise.then((result) => {
+        if (!result.ok && mediaInfoCache.get(url) === entry) mediaInfoCache.delete(url);
+    });
+    return promise;
+}
+
+// ─── Child process helpers ────────────────────────────────────────
+// yt-dlp starts ffmpeg as its own child. Killing only yt-dlp leaves ffmpeg
+// running (and holding the file), so stop the whole tree: taskkill /T on
+// Windows, the process group (spawned detached) elsewhere.
+function killProcessTree(proc, signal = 'SIGTERM') {
+    if (!proc || proc.exitCode !== null || proc.signalCode !== null) return;
+    if (process.platform === 'win32' && proc.pid) {
+        try {
+            const killer = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+            killer.once('error', () => { try { proc.kill(); } catch {} });
+            return;
+        } catch {}
+    }
+    if (process.platform !== 'win32' && proc.pid && proc._unigetGroup) {
+        try {
+            process.kill(-proc.pid, signal);
+            return;
+        } catch {}
+    }
+    try { proc.kill(signal); } catch {}
+}
+
+// Open files and folders through the Electron main process (ShellExecute /
+// xdg-open with no shell parsing). Falls back to spawning the opener directly.
+function requestShellAction(action, target) {
+    if (typeof process.send !== 'function' || !process.connected) return false;
+    try {
+        process.send({ type: 'shell', action, path: target });
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 // ─── Safe folder opener (no shell injection) ─────────────────────
 function openFolder(folderPath) {
+    if (requestShellAction('open-path', folderPath)) return;
     try {
         if (process.platform === 'win32') {
             spawn('explorer.exe', [folderPath], { detached: true, stdio: 'ignore' }).unref();
@@ -664,13 +1104,25 @@ function getMaxConcurrent() {
     return 5;
 }
 
-function getActiveDownloadCount() {
+// A slot is taken by a live process or a start in progress; counting by
+// status missed starts still awaiting tool checks and counted the caller itself.
+function getActiveDownloadCount(excludeId = null) {
     let count = 0;
     for (const id in downloads) {
-        const st = downloads[id].status;
-        if (st === 'downloading' || st === 'starting') count++;
+        if (id === excludeId) continue;
+        const dl = downloads[id];
+        if (dl.process || dl._spawning) count++;
     }
     return count;
+}
+
+// Start queued downloads (oldest first) while slots are free.
+function pumpQueue() {
+    for (const id of Object.keys(downloads)) {
+        if (getActiveDownloadCount() >= getMaxConcurrent()) return;
+        const dl = downloads[id];
+        if (dl && dl.status === 'queued' && !dl.process && !dl._spawning) startDownloadTask(id);
+    }
 }
 
 function isPathInside(parentDir, childPath) {
@@ -685,8 +1137,10 @@ function isPathInside(parentDir, childPath) {
 function openFile(filePath) {
     try {
         if (!filePath || !fs.existsSync(filePath) || !isPathInside(DOWNLOADS_DIR, filePath) || !isFinalMediaFile(filePath)) return false;
+        if (requestShellAction('open-path', filePath)) return true;
         if (process.platform === 'win32') {
-            spawn('cmd.exe', ['/c', 'start', '', filePath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+            // Not "cmd /c start": cmd would interpret & ^ % in file names.
+            spawn('explorer.exe', [filePath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
         } else if (process.platform === 'darwin') {
             spawn('open', [filePath], { detached: true, stdio: 'ignore' }).unref();
         } else {
@@ -698,10 +1152,12 @@ function openFile(filePath) {
     }
 }
 
-function findNewestCompletedFile() {
+// Fallback when yt-dlp printed no path. Only files written since this run
+// started count, so a concurrent download's file is never claimed.
+function findNewestCompletedFile(sinceMs = 0) {
     try {
-        const files = getDownloadFilesFromDisk();
-        return files.length ? files[0].filePath : null;
+        const file = getDownloadFilesFromDisk().find(f => f.mtimeMs >= sinceMs - 2000);
+        return file ? file.filePath : null;
     } catch(e) {
         return null;
     }
@@ -794,13 +1250,24 @@ function downloadFile(url, destPath, timeoutMs = 60000, redirectsLeft = 5) {
         const request = requestModule.get(url, { headers: { 'User-Agent': `UniGet Pro v${APP_VERSION}` } }, (res) => {
             // Follow redirects (bounded), keeping the caller's timeout budget
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                res.resume();
                 file.close(() => {
                     try { fs.unlinkSync(destPath); } catch {}
                     if (redirectsLeft <= 0) {
                         reject(new Error('Download failed: too many redirects'));
                         return;
                     }
-                    downloadFile(res.headers.location, destPath, timeoutMs, redirectsLeft - 1).then(resolve, reject);
+                    let next;
+                    try { next = new URL(res.headers.location, url); } catch {
+                        reject(new Error('Download failed: invalid redirect'));
+                        return;
+                    }
+                    // Executables are fetched over HTTPS; never follow a downgrade.
+                    if (next.protocol !== 'https:') {
+                        reject(new Error('Download failed: insecure redirect'));
+                        return;
+                    }
+                    downloadFile(next.toString(), destPath, timeoutMs, redirectsLeft - 1).then(resolve, reject);
                 });
                 return;
             }
@@ -834,6 +1301,40 @@ function downloadFile(url, destPath, timeoutMs = 60000, redirectsLeft = 5) {
             });
         });
     });
+}
+
+const YTDLP_EXE_URL = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
+const YTDLP_SUMS_URL = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS';
+
+function sha256File(filePath) {
+    return new Promise((resolve, reject) => {
+        const hash = crypto.createHash('sha256');
+        fs.createReadStream(filePath)
+            .on('error', reject)
+            .on('data', chunk => hash.update(chunk))
+            .on('end', () => resolve(hash.digest('hex')));
+    });
+}
+
+// Download yt-dlp.exe and check it against the release's SHA2-256SUMS so a
+// tampered or truncated binary is never executed.
+async function downloadVerifiedYtDlp(destPath, timeoutMs) {
+    const sumsPath = `${destPath}.sums`;
+    try {
+        await downloadFile(YTDLP_SUMS_URL, sumsPath, 60000);
+        const sums = fs.readFileSync(sumsPath, 'utf8');
+        const line = sums.split(/\r?\n/).find(l => /^[a-f0-9]{64}\s+\*?yt-dlp\.exe$/i.test(l.trim()));
+        if (!line) throw new Error('yt-dlp.exe checksum not found in SHA2-256SUMS');
+        const expected = line.trim().slice(0, 64).toLowerCase();
+        await downloadFile(YTDLP_EXE_URL, destPath, timeoutMs);
+        const actual = await sha256File(destPath);
+        if (actual !== expected) {
+            try { fs.rmSync(destPath, { force: true }); } catch {}
+            throw new Error('yt-dlp.exe checksum mismatch');
+        }
+    } finally {
+        try { fs.rmSync(sumsPath, { force: true }); } catch {}
+    }
 }
 
 async function ensureYtDlpAvailable() {
@@ -873,10 +1374,9 @@ async function ensureYtDlpAvailable() {
     }
 
     // Download yt-dlp.exe (stable) from official GitHub release.
-    const url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
     try {
         console.log('Downloading yt-dlp.exe...');
-        await downloadFile(url, bundled);
+        await downloadVerifiedYtDlp(bundled, 60000);
         // Verify size after download
         if (fs.existsSync(bundled) && fs.statSync(bundled).size > 1000000) {
             _cachedYtDlpPath = bundled;
@@ -902,7 +1402,7 @@ function getYtDlpVersion(cmd, timeoutMs = 10000) {
         };
         let proc;
         try {
-            proc = spawn(cmd, ['--version']);
+            proc = spawn(cmd, ['--version'], { windowsHide: true });
         } catch {
             return done(null);
         }
@@ -956,9 +1456,8 @@ async function updateYtDlp() {
         fs.mkdirSync(binDir, { recursive: true });
         try { fs.rmSync(tempPath, { force: true }); } catch {}
 
-        const url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
         console.log('Downloading latest yt-dlp.exe...');
-        await downloadFile(url, tempPath, 5 * 60 * 1000);
+        await downloadVerifiedYtDlp(tempPath, 5 * 60 * 1000);
 
         const stat = fs.existsSync(tempPath) ? fs.statSync(tempPath) : null;
         if (!stat || stat.size < 1000000) {
@@ -1001,7 +1500,12 @@ async function updateYtDlp() {
 
 function checkToolAvailable(cmd, args = ['-version']) {
     return new Promise((resolve) => {
-        const p = spawn(cmd, args);
+        let p;
+        try {
+            p = spawn(cmd, args, { windowsHide: true, stdio: 'ignore' });
+        } catch {
+            return resolve(false);
+        }
         let settled = false;
         const done = (ok) => {
             if (settled) return;
@@ -1013,10 +1517,11 @@ function checkToolAvailable(cmd, args = ['-version']) {
     });
 }
 
-function runPowerShell(args) {
+function runPowerShell(args, env = {}) {
     return new Promise((resolve, reject) => {
-        const p = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', ...args], {
-            windowsHide: true
+        const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', ...args], {
+            windowsHide: true,
+            env: { ...process.env, ...env }
         });
         let stderr = '';
         p.stderr.on('data', data => {
@@ -1030,43 +1535,99 @@ function runPowerShell(args) {
     });
 }
 
+function runTool(cmd, args) {
+    return new Promise((resolve, reject) => {
+        let p;
+        try {
+            p = spawn(cmd, args, { windowsHide: true, stdio: 'ignore' });
+        } catch (e) {
+            return reject(e);
+        }
+        p.once('error', reject);
+        p.once('close', code => (code === 0 ? resolve() : reject(new Error(`${path.basename(cmd)} exited with ${code}`))));
+    });
+}
+
+async function extractZip(zipPath, destDir) {
+    fs.mkdirSync(destDir, { recursive: true });
+    // Windows' own bsdtar (10 1803+) unpacks zips far faster than Expand-Archive.
+    const systemTar = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
+    if (fs.existsSync(systemTar)) {
+        try {
+            await runTool(systemTar, ['-xf', zipPath, '-C', destDir]);
+            return;
+        } catch (e) {
+            console.warn('tar extraction failed, falling back to Expand-Archive:', e?.message || e);
+        }
+    }
+    // Paths go through the environment: arguments after -Command are glued
+    // into the command text instead of landing in $args.
+    await runPowerShell(
+        ['-Command', 'Expand-Archive -LiteralPath $env:UNIGET_ZIP -DestinationPath $env:UNIGET_DEST -Force'],
+        { UNIGET_ZIP: zipPath, UNIGET_DEST: destDir }
+    );
+}
+
+function findFileRecursive(rootDir, fileName) {
+    const stack = [rootDir];
+    while (stack.length) {
+        const current = stack.pop();
+        let entries = [];
+        try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { continue; }
+        for (const entry of entries) {
+            const full = path.join(current, entry.name);
+            if (entry.isDirectory()) stack.push(full);
+            else if (entry.name.toLowerCase() === fileName) return full;
+        }
+    }
+    return null;
+}
+
+function getBundledFfprobePath() {
+    return path.join(getAppDataDir(), 'bin', 'ffprobe.exe');
+}
+
+const FFMPEG_ZIP_URL = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip';
+
 async function installPortableFfmpeg() {
     if (process.platform !== 'win32') return false;
     const bundled = getBundledFfmpegPath();
-    if (fs.existsSync(bundled)) return true;
+    const bundledProbe = getBundledFfprobePath();
+    // ffprobe is required too: yt-dlp needs it for MP3 extraction.
+    if (fs.existsSync(bundled) && fs.existsSync(bundledProbe)) return true;
     if (_ffmpegInstallPromise) return _ffmpegInstallPromise;
 
     _ffmpegInstallPromise = (async () => {
         const binDir = path.dirname(bundled);
-        const tmpDir = path.join(getAppDataDir(), 'tmp');
-        const zipPath = path.join(tmpDir, 'ffmpeg-release-essentials.zip');
-        const extractDir = path.join(tmpDir, 'ffmpeg-extract');
-        const url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip';
+        // Own folder: the shared tmp dir also holds partial downloads.
+        const workDir = path.join(getAppDataDir(), 'tmp', 'ffmpeg-install');
+        const zipPath = path.join(workDir, 'ffmpeg-release-essentials.zip');
+        const sumPath = `${zipPath}.sha256`;
+        const extractDir = path.join(workDir, 'extract');
 
         fs.mkdirSync(binDir, { recursive: true });
-        fs.rmSync(extractDir, { recursive: true, force: true });
-        fs.mkdirSync(tmpDir, { recursive: true });
-        console.log('Downloading portable FFmpeg...');
-        await downloadFile(url, zipPath, 10 * 60 * 1000);
-        await runPowerShell(['-Command', 'Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force', zipPath, extractDir]);
-
-        const stack = [extractDir];
-        let found = null;
-        while (stack.length && !found) {
-            const current = stack.pop();
-            for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-                const full = path.join(current, entry.name);
-                if (entry.isDirectory()) stack.push(full);
-                else if (entry.name.toLowerCase() === 'ffmpeg.exe') {
-                    found = full;
-                    break;
-                }
+        fs.rmSync(workDir, { recursive: true, force: true });
+        fs.mkdirSync(workDir, { recursive: true });
+        try {
+            console.log('Downloading portable FFmpeg...');
+            await downloadFile(`${FFMPEG_ZIP_URL}.sha256`, sumPath, 60000);
+            const expected = (fs.readFileSync(sumPath, 'utf8').match(/\b[a-f0-9]{64}\b/i) || [])[0];
+            if (!expected) throw new Error('FFmpeg checksum could not be read');
+            await downloadFile(FFMPEG_ZIP_URL, zipPath, 10 * 60 * 1000);
+            if ((await sha256File(zipPath)) !== expected.toLowerCase()) {
+                throw new Error('FFmpeg package checksum mismatch');
             }
+            await extractZip(zipPath, extractDir);
+
+            const ffmpegExe = findFileRecursive(extractDir, 'ffmpeg.exe');
+            if (!ffmpegExe) throw new Error('ffmpeg.exe not found in downloaded package');
+            const ffprobeExe = findFileRecursive(extractDir, 'ffprobe.exe');
+            fs.copyFileSync(ffmpegExe, bundled);
+            if (ffprobeExe) fs.copyFileSync(ffprobeExe, bundledProbe);
+            return fs.existsSync(bundled);
+        } finally {
+            try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
         }
-        if (!found) throw new Error('ffmpeg.exe not found in downloaded package');
-        fs.copyFileSync(found, bundled);
-        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-        return fs.existsSync(bundled);
     })().finally(() => {
         _ffmpegInstallPromise = null;
     });
@@ -1082,7 +1643,9 @@ async function hasFfmpeg() {
     if (process.platform === 'win32') {
         const bundled = getBundledFfmpegPath();
         if (fs.existsSync(bundled)) {
-            result = await checkToolAvailable(bundled);
+            // Older installs copied ffmpeg.exe only; report missing so the
+            // repair flow fetches ffprobe.exe as well.
+            result = fs.existsSync(getBundledFfprobePath()) && await checkToolAvailable(bundled);
         } else {
             result = await checkToolAvailable('ffmpeg.exe');
         }
@@ -1130,9 +1693,7 @@ function emitDownloadProgress(dl, force = false) {
 }
 
 function toSafeDownload(dl) {
-    if (!dl) return null;
-    const { process: _p, _spawning, _timer, ...safeDl } = dl;
-    return safeDl;
+    return dl ? stripInternal(dl) : null;
 }
 
 function getSafeDownloads() {
@@ -1142,6 +1703,13 @@ function getSafeDownloads() {
     }
     return safeDownloads;
 }
+
+// Live progress is for the desktop UI only.
+io.use((socket, next) => {
+    const auth = authenticateClient(socket.handshake.auth?.token, socket.handshake.headers.origin);
+    if (auth?.role === 'desktop') return next();
+    next(new Error('auth_required'));
+});
 
 io.on('connection', (socket) => {
     socket.emit('initial-state', getSafeDownloads());
@@ -1155,117 +1723,20 @@ app.get('/api/downloads', (req, res) => {
 app.post('/api/info', async (req, res) => {
     const url = parseHttpUrl(req.body.url);
     if (!url) return res.status(400).json({ error: 'Valid HTTP(S) URL is required' });
-
-    // Deduplicate concurrent requests for the same URL
-    if (infoCache.has(url)) {
-        try {
-            const info = await infoCache.get(url);
-            return res.json(info);
-        } catch (e) {
-            return res.status(500).json({ error: e.message || 'yt-dlp failed' });
-        }
-    }
-
-    const infoPromise = new Promise(async (resolve, reject) => {
-        const ytDlpCmd = await ensureYtDlpAvailable();
-        const args = appendBrowserCookieArgs(['--js-runtimes', 'node', '-j', '--no-playlist', url]);
-        const proc = spawn(ytDlpCmd, args);
-        let output = '';
-        let stderr = '';
-
-        proc.stdout.on('data', (data) => output += data);
-        proc.stderr.on('data', (data) => {
-            if (stderr.length < 4096) stderr += data.toString();
-        });
-
-        const timeout = setTimeout(() => {
-            try { proc.kill('SIGTERM'); } catch {}
-            reject(new Error('Timeout fetching info'));
-        }, 30000);
-
-        proc.on('close', (code) => {
-            clearTimeout(timeout);
-            const info = parseYtDlpJson(output);
-            if (info) {
-                resolve(buildInfoResponse(url, info));
-            } else if (code === 0) {
-                reject(new Error('Failed to parse info'));
-            } else {
-                reject(new Error(getUsefulYtDlpError(stderr)));
-            }
-            // Clear from cache after a short delay (e.g. 5s) to allow new requests if needed
-            setTimeout(() => infoCache.delete(url), 5000);
-        });
-    });
-
-    addToInfoCache(url, infoPromise);
-    // On failure, remove from cache immediately so retries work
-    infoPromise.catch(() => infoCache.delete(url));
-
-    try {
-        const info = await infoPromise;
-        res.json(info);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
+    const result = await getMediaInfo(url);
+    if (!result.ok) return res.status(500).json({ error: result.error });
+    res.json(result.data);
 });
 
 app.post('/api/validate-media', async (req, res) => {
     const url = parseHttpUrl(req.body.url);
     if (!url) return res.status(400).json({ error: 'Valid HTTP(S) URL is required' });
-
-    try {
-        const ytDlpCmd = await ensureYtDlpAvailable();
-        const args = appendBrowserCookieArgs(['--js-runtimes', 'node', '-J', '--no-playlist', url]);
-        const proc = spawn(ytDlpCmd, args);
-        let output = '';
-        let stderr = '';
-
-        proc.stdout.on('data', data => {
-            if (output.length < 2 * 1024 * 1024) output += data.toString();
-        });
-        proc.stderr.on('data', data => {
-            if (stderr.length < 4096) stderr += data.toString();
-        });
-
-        let timedOut = false;
-        const timeout = setTimeout(() => {
-            timedOut = true;
-            try { proc.kill('SIGTERM'); } catch {}
-        }, 20000);
-
-        proc.on('close', code => {
-            clearTimeout(timeout);
-            const info = parseYtDlpJson(output);
-            if (info) {
-                const media = classifyMediaInfo(info);
-                if (media.downloadable || code === 0) {
-                    return res.json({
-                        ...media,
-                        title: info.title || null,
-                        thumbnail: info.thumbnail || null
-                    });
-                }
-            }
-            if (timedOut) {
-                return res.status(422).json({
-                    downloadable: false,
-                    mediaType: 'unknown',
-                    error: 'Media verification timed out'
-                });
-            }
-            if (code !== 0) {
-                return res.status(422).json({
-                    downloadable: false,
-                    mediaType: 'unknown',
-                    error: getUsefulYtDlpError(stderr, 'Media could not be verified')
-                });
-            }
-            res.status(422).json({ downloadable: false, mediaType: 'unknown', error: 'Media info could not be parsed' });
-        });
-    } catch (e) {
-        res.status(500).json({ downloadable: false, mediaType: 'unknown', error: e.message || 'Media validation failed' });
+    const result = await getMediaInfo(url);
+    if (!result.ok) {
+        return res.status(422).json({ downloadable: false, mediaType: 'unknown', error: result.error });
     }
+    const { mediaType, downloadable, title, thumbnail } = result.data;
+    res.json({ mediaType, downloadable, title: title || null, thumbnail: thumbnail || null });
 });
 
 function schedulePendingDownloads() {
@@ -1281,24 +1752,38 @@ function schedulePendingDownloads() {
     }
 }
 
+// setTimeout overflows past ~24.8 days and would fire immediately.
+const MAX_TIMER_DELAY_MS = 2147483647;
+
 function scheduleDownloadTask(id, delayMs) {
     const dl = downloads[id];
     if (!dl) return;
     if (dl._timer) clearTimeout(dl._timer);
     dl._timer = setTimeout(() => {
         dl._timer = null;
-        if (downloads[id]) startDownloadTask(id);
-    }, Math.max(1000, delayMs));
+        if (downloads[id] !== dl || dl.status !== 'scheduled') return;
+        const remaining = new Date(dl.scheduledAt).getTime() - Date.now();
+        if (remaining > 1000) return scheduleDownloadTask(id, remaining);
+        startDownloadTask(id);
+    }, Math.max(1000, Math.min(delayMs, MAX_TIMER_DELAY_MS)));
+}
+
+// Unambiguous markers: titles may contain '|' and must never be mistaken for
+// progress fields or file paths.
+const PROGRESS_MARK = 'UNIGET_PROGRESS|';
+const FILE_MARK = 'UNIGET_FILE|';
+
+function failDownload(dl, detail) {
+    dl.errorDetail = detail;
+    dl.status = `error:${detail.substring(0, 100)}`;
+    emitDownloadProgress(dl, true);
 }
 
 async function startDownloadTask(id) {
     const dl = downloads[id];
     if (!dl) return;
 
-    // Guard against double-start: if this download already has a live process
-    // or is mid-spawn, bail out. Both the 3s queue self-retry and the on-close
-    // "kick next queued" path can otherwise fire for the same id and spawn two
-    // yt-dlp processes for one download.
+    // Guard against double-start (queue pump, resume, retries).
     if (dl.process || dl._spawning) return;
 
     if (IS_TEST_RUNNER_DISABLED) {
@@ -1308,22 +1793,48 @@ async function startDownloadTask(id) {
         return;
     }
 
-    // Enforce concurrent download limit
-    if (getActiveDownloadCount() >= getMaxConcurrent()) {
-        dl.status = 'queued';
-        emitDownloadProgress(dl, true);
-        // Re-check after a delay
-        setTimeout(() => {
-            if (downloads[id] && dl.status === 'queued') startDownloadTask(id);
-        }, 3000);
+    // Enforce concurrent download limit; pumpQueue() starts it once a slot frees up.
+    if (getActiveDownloadCount(id) >= getMaxConcurrent()) {
+        if (dl.status !== 'queued') {
+            dl.status = 'queued';
+            emitDownloadProgress(dl, true);
+        }
         return;
     }
 
     // Reserve this task synchronously (before any await) so a concurrent
     // invocation sees the flag and returns early.
     dl._spawning = true;
+    dl.status = 'starting';
+    dl.errorDetail = null;
+    emitDownloadProgress(dl, true);
 
-    const ffmpegAvailable = await hasFfmpeg();
+    let ffmpegAvailable;
+    let ytDlpCmd;
+    try {
+        [ffmpegAvailable, ytDlpCmd] = await Promise.all([hasFfmpeg(), ensureYtDlpAvailable()]);
+    } catch (e) {
+        dl._spawning = false;
+        failDownload(dl, String(e?.message || e || 'tool check failed'));
+        pumpQueue();
+        return;
+    }
+
+    // Cancelled or paused while the tool checks were running.
+    if (downloads[id] !== dl || dl.status === 'paused') {
+        dl._spawning = false;
+        pumpQueue();
+        return;
+    }
+
+    const wantsTrim = !!(dl.startTime || dl.endTime);
+    if (wantsTrim && !ffmpegAvailable) {
+        dl._spawning = false;
+        failDownload(dl, 'Kırpma (başlangıç/bitiş) için FFmpeg gerekli. Ayarlar > Araçları Onar ile kurun.');
+        pumpQueue();
+        return;
+    }
+
     let formatOption = getVideoFormatOption(dl.quality, ffmpegAvailable);
 
     // Format retry: önceki denemede "Requested format is not available" alındıysa
@@ -1331,11 +1842,6 @@ async function startDownloadTask(id) {
     if (dl._useSimpleFormat) {
         formatOption = ffmpegAvailable ? 'bv*+ba/b/w' : 'b[ext=mp4]/b/w';
         console.log(`[yt-dlp] Using simple fallback format for ${dl.id}: ${formatOption}`);
-    }
-
-    if (!ffmpegAvailable && dl.quality !== 'best' && dl.quality !== 'audio' && Number.parseInt(dl.quality, 10) > 720) {
-        dl.status = 'ffmpeg yok: tek dosya MP4/progressive mod kullaniliyor';
-        emitDownloadProgress(dl, true);
     }
 
     const mode = dl.effectivePowerMode || 'normal';
@@ -1356,11 +1862,14 @@ async function startDownloadTask(id) {
         '--continue',
         '--no-abort-on-error',
         '--no-warnings',
+        // File time = download time: keeps the library order and the
+        // history retention based on when the file was actually saved.
+        '--no-mtime',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        '--js-runtimes', 'node',
+        '--js-runtimes', getJsRuntimeArg(),
         '--progress',
-        '--progress-template', '%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
-        '--print', 'after_move:filepath',
+        '--progress-template', `download:${PROGRESS_MARK}%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s`,
+        '--print', `after_move:${FILE_MARK}%(filepath)s`,
         '--match-filters', "ext!='jpg' & ext!='jpeg' & ext!='png' & ext!='webp' & ext!='avif'",
         '--retries', String(retryLimit),
         '-N', String(turboThreads),
@@ -1373,8 +1882,11 @@ async function startDownloadTask(id) {
     if (ffmpegAvailable) {
         const ffmpegLocation = getFfmpegLocationArg();
         if (ffmpegLocation) args.push('--ffmpeg-location', ffmpegLocation);
-        // Force AAC audio codec in output — prevents Opus/WebM audio ending up in mp4
-        args.push('--postprocessor-args', 'ffmpeg:-movflags +faststart -c:a aac -b:a 192k');
+        // AAC only when merging into MP4 (prevents Opus/WebM audio in mp4).
+        // Scoped to the Merger: as a global ffmpeg arg it also hit audio
+        // extraction (-c:a aac into an .mp3 fails) and re-encoded audio in
+        // every metadata/subtitle pass.
+        args.push('--postprocessor-args', 'Merger+ffmpeg_o:-c:a aac -b:a 192k -movflags +faststart');
         args.push('--embed-metadata');
     }
 
@@ -1393,7 +1905,7 @@ async function startDownloadTask(id) {
     }
 
     // Trimming support
-    if (dl.startTime || dl.endTime) {
+    if (wantsTrim) {
         const start = dl.startTime || '00:00:00';
         const end = dl.endTime || '99:59:59';
         args.push('--download-sections', `*${start}-${end}`);
@@ -1402,120 +1914,157 @@ async function startDownloadTask(id) {
 
     const directMediaUrl = isDirectMediaUrl(dl.url);
     if (dl.quality === 'audio') {
-        args.push('-x', '--audio-format', 'mp3', '--audio-quality', '0');
-    } else if (directMediaUrl) {
-        dl.status = 'direct media download';
-        emitDownloadProgress(dl, true);
-    } else {
-        args.push('--format', formatOption);
         if (ffmpegAvailable) {
-            args.push('--merge-output-format', 'mp4');
+            args.push('-x', '--audio-format', 'mp3', '--audio-quality', '0');
         } else {
-            dl.status = 'ffmpeg yok: tek dosya (progressive) format kullaniliyor';
-            emitDownloadProgress(dl, true);
+            // MP3 conversion needs FFmpeg; keep the original audio stream instead of failing.
+            args.push('--format', 'ba[ext=m4a]/ba/b');
         }
+    } else if (!directMediaUrl) {
+        args.push('--format', formatOption);
+        if (ffmpegAvailable) args.push('--merge-output-format', 'mp4');
     }
     if (dl.subtitles) {
         args.push('--write-subs', '--sub-langs', dl.subtitleLangs || 'all,-live_chat');
-        if (ffmpegAvailable) args.push('--embed-subs');
-        if (dl.subtitleFormat && dl.subtitleFormat !== 'best') {
-            args.push('--convert-subs', dl.subtitleFormat);
+        if (ffmpegAvailable) {
+            args.push('--embed-subs');
+            if (dl.subtitleFormat && dl.subtitleFormat !== 'best') args.push('--convert-subs', dl.subtitleFormat);
         }
     }
-    args.push('-o', dl.outputTemplate || appConfig.outputTemplate || '%(title).180B [%(id)s].%(ext)s', dl.url);
+    // Re-validate: persisted state/config from older versions may hold unsafe templates.
+    const outputTemplate = normalizeOutputTemplate(dl.outputTemplate)
+        || normalizeOutputTemplate(appConfig.outputTemplate)
+        || DEFAULT_OUTPUT_TEMPLATE;
+    args.push('-o', outputTemplate, '--', dl.url);
 
-    const ytDlpCmd = await ensureYtDlpAvailable();
-    console.log(`Starting yt-dlp with args: ${ytDlpCmd} ${args.join(' ')}`);
-    dl.process = spawn(ytDlpCmd, args);
+    console.log(`Starting yt-dlp for ${dl.id}: ${ytDlpCmd} ${args.join(' ')}`);
+    let proc;
+    try {
+        // detached on POSIX = own process group, so pause/cancel also stop ffmpeg.
+        proc = spawn(ytDlpCmd, args, getYtDlpSpawnOptions({ detached: process.platform !== 'win32' }));
+        proc._unigetGroup = process.platform !== 'win32';
+    } catch (e) {
+        dl._spawning = false;
+        failDownload(dl, String(e?.message || e || 'yt-dlp could not be started'));
+        pumpQueue();
+        return;
+    }
     dl._spawning = false;
+    dl.process = proc;
+    dl._startedAt = Date.now();
     dl.status = 'downloading';
+    emitDownloadProgress(dl, true);
 
-    dl.process.stdout.on('data', (data) => {
-        const lines = data.toString().split('\n');
-        for (let line of lines) {
-            line = line.trim();
-            if (!line) continue;
-            if (line.includes('|')) {
-                const parts = line.split('|');
-                if (parts.length >= 3) {
-                    dl.progress = parseFloat(parts[0].replace('%', '').trim()) || dl.progress;
-                    dl.speed = parts[1].trim();
-                    dl.eta = parts[2].trim();
-                    emitDownloadProgress(dl);
-                }
-            } else if (fs.existsSync(line) && isPathInside(DOWNLOADS_DIR, line)) {
-                dl.filePath = line;
+    const handleLine = (line, fromStderr) => {
+        if (!line) return;
+        if (line.startsWith(PROGRESS_MARK)) {
+            const parts = line.slice(PROGRESS_MARK.length).split('|');
+            if (parts.length >= 3) {
+                const pct = parseFloat(parts[0]);
+                if (Number.isFinite(pct)) dl.progress = Math.max(0, Math.min(100, pct));
+                dl.speed = parts[1].trim().slice(0, 32);
+                dl.eta = parts[2].trim().slice(0, 32);
+                emitDownloadProgress(dl);
             }
+            return;
         }
-    });
-
-    dl.process.on('error', (err) => {
-        console.error('Download spawn error:', err);
-        if (err && err.code === 'ENOENT') {
-            dl.status = 'error:yt-dlp-not-found';
-            dl.errorDetail = 'yt-dlp bulunamadi veya baslatilamadi.';
-        } else {
-            dl.errorDetail = err.message || 'unknown';
-            dl.status = `error:${dl.errorDetail.substring(0, 80)}`;
+        if (line.startsWith(FILE_MARK)) {
+            const filePath = line.slice(FILE_MARK.length).trim();
+            if (filePath && isPathInside(DOWNLOADS_DIR, filePath)) dl.filePath = filePath;
+            return;
         }
-        emitDownloadProgress(dl, true);
-    });
+        if (!fromStderr || !line.includes('ERROR:')) return;
+        // Pausing/cancelling interrupts yt-dlp, which then reports an error.
+        if (dl.status === 'paused' || downloads[id] !== dl || dl._retrying) return;
+        const cleanErr = line.replace('ERROR:', '').trim();
+        console.warn(`[yt-dlp error]: ${cleanErr}`);
 
-    // Buffer stderr to avoid memory explosion from verbose error output
+        // "Requested format is not available" — format filtresi hiçbir formata
+        // denk gelmediyse, süreç kapanınca basit bir fallback ile tekrar dene.
+        if (/requested format/i.test(cleanErr) && !dl._formatRetried) {
+            dl._formatRetried = true;
+            dl._retrying = true;
+            console.log(`[yt-dlp] Format retry: restarting ${dl.id} with a fallback format`);
+            killProcessTree(proc);
+            return;
+        }
+
+        let detail = cleanErr.substring(0, 300);
+        if (/requested format/i.test(cleanErr)) {
+            detail = ffmpegAvailable
+                ? 'Bu video için uygun bir format bulunamadı. yt-dlp\'yi güncellemeyi deneyin (Ayarlar > yt-dlp Güncelle).'
+                : 'Bu video yalnızca ayrı video/ses akışları sunuyor. FFmpeg kurun (Ayarlar > Araçları Onar) veya yt-dlp\'yi güncelleyin.';
+        }
+        failDownload(dl, detail);
+    };
+
+    // Line-buffer both streams: a chunk can end mid-line (or mid-path).
+    const lineReader = (fromStderr) => {
+        let buffer = '';
+        return {
+            push(chunk) {
+                if (fromStderr && stderrBuf.length < 4096) stderrBuf += chunk;
+                buffer += chunk;
+                const lines = buffer.split(/\r?\n/);
+                buffer = lines.pop();
+                if (buffer.length > 65536) buffer = '';
+                for (const line of lines) handleLine(line.trim(), fromStderr);
+            },
+            flush() {
+                handleLine(buffer.trim(), fromStderr);
+                buffer = '';
+            }
+        };
+    };
     let stderrBuf = '';
-    dl.process.stderr.on('data', (data) => {
-        const chunk = data.toString();
-        if (stderrBuf.length < 4096) stderrBuf += chunk;
-        if (chunk.includes('ERROR:')) {
-            const cleanErr = chunk.replace('ERROR:', '').trim();
-            console.warn(`[yt-dlp error]: ${cleanErr}`);
+    const outReader = lineReader(false);
+    const errReader = lineReader(true);
+    proc.stdout.setEncoding('utf8');
+    proc.stderr.setEncoding('utf8');
+    proc.stdout.on('data', chunk => outReader.push(chunk));
+    proc.stderr.on('data', chunk => errReader.push(chunk));
 
-            // "Requested format is not available" — format filtresi hiçbir formata
-            // denk gelmediyse, basit bir fallback ile tekrar dene.
-            if (/requested format/i.test(cleanErr) && !dl._formatRetried) {
-                dl._formatRetried = true;
-                console.log(`[yt-dlp] Format retry: killing process and retrying with fallback format for ${dl.id}`);
-                try { dl.process.kill(process.platform === 'win32' ? undefined : 'SIGTERM'); } catch {}
-                // Kısa bir gecikmeyle basit formatta tekrar başlat
-                setTimeout(async () => {
-                    if (!downloads[dl.id]) return;
-                    dl.process = null;
-                    dl._spawning = false;
-                    dl._useSimpleFormat = true;
-                    dl.status = 'starting';
-                    dl.errorDetail = null;
-                    emitDownloadProgress(dl, true);
-                    startDownloadTask(dl.id);
-                }, 500);
-                return;
-            }
+    let ended = false;
+    const onExit = (code) => {
+        if (ended) return;
+        ended = true;
+        outReader.flush();
+        errReader.flush();
+        if (dl.process === proc) dl.process = null;
+        console.log(`yt-dlp process for ${dl.id} closed with code: ${code}`);
 
-            dl.errorDetail = cleanErr.substring(0, 300);
-            // "Requested format is not available" hatası için daha açıklayıcı mesaj
-            if (/requested format/i.test(cleanErr)) {
-                dl.errorDetail = ffmpegAvailable
-                    ? 'Bu video için uygun bir format bulunamadı. yt-dlp\'yi güncellemeyi deneyin (Ayarlar > yt-dlp Güncelle).'
-                    : 'Bu video yalnızca ayrı video/ses akışları sunuyor. FFmpeg kurun (Ayarlar > Araçları Onar) veya yt-dlp\'yi güncelleyin.';
-            }
-            dl.status = `error:${dl.errorDetail.substring(0, 100)}`;
-            emitDownloadProgress(dl, true);
+        // Cancelled/removed while running: do not resurrect it on clients.
+        if (downloads[id] !== dl) {
+            pumpQueue();
+            return;
         }
-    });
 
-    dl.process.on('close', (code) => {
-        console.log(`yt-dlp process closed with code: ${code}`);
-        dl.process = null;
-        // If the download was cancelled/removed while the process was running,
-        // do not resurrect it as a failed download on clients.
-        if (!downloads[id]) return;
+        if (dl._retrying) {
+            dl._retrying = false;
+            dl._useSimpleFormat = true;
+            dl.status = 'starting';
+            dl.errorDetail = null;
+            emitDownloadProgress(dl, true);
+            setTimeout(() => {
+                if (downloads[id] === dl && dl.status === 'starting') startDownloadTask(id);
+            }, 500);
+            return;
+        }
+
         if (code === 0) {
-            if (!dl.filePath) dl.filePath = findNewestCompletedFile();
+            if (!dl.filePath) dl.filePath = findNewestCompletedFile(dl._startedAt);
             if (!dl.filePath || !fs.existsSync(dl.filePath) || !isPathInside(DOWNLOADS_DIR, dl.filePath) || !isFinalMediaFile(dl.filePath)) {
                 dl.status = 'failed';
                 dl.errorDetail = 'Indirme tamamlandi ancak final video/ses dosyasi bulunamadi.';
             } else {
                 dl.status = 'completed';
                 dl.progress = 100;
+                dl.speed = '0 KiB/s';
+                dl.eta = 'done';
+                dl.completedAt = new Date().toISOString();
+                try { dl.fileSize = fs.statSync(dl.filePath).size; } catch {}
+                // A new download of a file the user once cleared shows up again.
+                if (clearedFiles.delete(pathKey(dl.filePath))) saveClearedFiles();
             }
             if (dl.status === 'completed' && dl.autoOpen) {
                 openFolder(DOWNLOADS_DIR);
@@ -1532,48 +2081,74 @@ async function startDownloadTask(id) {
         }
 
         if (appConfig.postDownloadCommand && dl.status === 'completed' && dl.filePath) {
+            // File names come from remote video titles, so they must never be
+            // spliced into the shell unquoted. Drop any quotes the user put
+            // around the placeholder and quote the value ourselves.
             const cmd = appConfig.postDownloadCommand
-                .replace(/\{file\}/g, dl.filePath)
-                .replace(/\{dir\}/g, path.dirname(dl.filePath));
+                .replace(/(["']?)\{(file|dir)\}\1/g, (_m, _q, key) => shellQuote(key === 'file' ? dl.filePath : path.dirname(dl.filePath)));
             try { exec(cmd, { windowsHide: true }); } catch {}
         }
 
-        if (appConfig.sleepAfterDownload && dl.status === 'completed' && getActiveDownloadCount() === 0) {
-            setTimeout(() => {
-                try {
-                    if (process.platform === 'win32') {
-                        spawn('rundll32.exe', ['powrprof.dll,SetSuspendState', '0,1,0'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-                    } else if (process.platform === 'darwin') {
-                        spawn('pmset', ['sleepnow'], { detached: true, stdio: 'ignore' }).unref();
-                    } else {
-                        spawn('systemctl', ['suspend'], { detached: true, stdio: 'ignore' }).unref();
-                    }
-                } catch {}
-            }, 5000);
-        }
         delete progressEmitState[dl.id];
+        pumpQueue();
 
-        // Kick queued downloads
-        for (const qid in downloads) {
-            if (downloads[qid].status === 'queued') {
-                startDownloadTask(qid);
-                break;
-            }
-        }
+        if (appConfig.sleepAfterDownload && dl.status === 'completed') scheduleSleepIfIdle();
 
         // Auto-cleanup memory: keep only last 50 downloads
         const downloadIds = Object.keys(downloads);
         if (downloadIds.length > 50) {
             const toDelete = downloadIds.slice(0, downloadIds.length - 50);
             toDelete.forEach(tid => {
-                const st = String(downloads[tid]?.status || '');
-                if (st === 'completed' || st === 'failed' || st.startsWith('error:')) {
+                if (isTerminalStatus(downloads[tid]?.status)) {
                     delete downloads[tid];
                     delete progressEmitState[tid];
                 }
             });
         }
+    };
+
+    proc.once('error', (err) => {
+        console.error('Download spawn error:', err);
+        if (downloads[id] === dl && dl.process === proc) {
+            if (err && err.code === 'ENOENT') {
+                dl.errorDetail = 'yt-dlp bulunamadi veya baslatilamadi.';
+                dl.status = 'error:yt-dlp-not-found';
+                emitDownloadProgress(dl, true);
+            } else {
+                failDownload(dl, String(err?.message || 'unknown').substring(0, 300));
+            }
+        }
+        // A failed spawn may never emit 'close'; free the slot ourselves.
+        if (proc.pid === undefined) onExit(-1);
     });
+    proc.once('close', onExit);
+}
+
+function hasPendingWork() {
+    for (const id in downloads) {
+        const dl = downloads[id];
+        if (dl.process || dl._spawning || dl.status === 'queued' || dl.status === 'starting') return true;
+    }
+    return false;
+}
+
+// Sleep only once nothing is running or waiting in the queue.
+let _sleepTimer = null;
+function scheduleSleepIfIdle() {
+    if (_sleepTimer || hasPendingWork()) return;
+    _sleepTimer = setTimeout(() => {
+        _sleepTimer = null;
+        if (!appConfig.sleepAfterDownload || hasPendingWork()) return;
+        try {
+            if (process.platform === 'win32') {
+                spawn('rundll32.exe', ['powrprof.dll,SetSuspendState', '0,1,0'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+            } else if (process.platform === 'darwin') {
+                spawn('pmset', ['sleepnow'], { detached: true, stdio: 'ignore' }).unref();
+            } else {
+                spawn('systemctl', ['suspend'], { detached: true, stdio: 'ignore' }).unref();
+            }
+        } catch {}
+    }, 5000);
 }
 
 app.post('/api/download', (req, res) => {
@@ -1585,12 +2160,13 @@ app.post('/api/download', (req, res) => {
         const ts = Date.parse(req.body.scheduleAt);
         if (Number.isFinite(ts) && ts > Date.now()) scheduledAt = new Date(ts).toISOString();
     }
-    const outputTemplate = typeof req.body.outputTemplate === 'string' && req.body.outputTemplate.trim()
-        ? req.body.outputTemplate.trim().slice(0, 200)
-        : (appConfig.outputTemplate || '%(title).180B [%(id)s].%(ext)s');
-    const subtitleLangs = typeof (req.body.subtitleLangs || req.body.subtitleLang) === 'string'
-        ? String(req.body.subtitleLangs || req.body.subtitleLang).trim().slice(0, 120)
-        : '';
+    if (typeof req.body.outputTemplate === 'string' && req.body.outputTemplate.trim() && !normalizeOutputTemplate(req.body.outputTemplate)) {
+        return res.status(400).json({ error: 'Output template must be a relative path' });
+    }
+    const outputTemplate = normalizeOutputTemplate(req.body.outputTemplate)
+        || normalizeOutputTemplate(appConfig.outputTemplate)
+        || DEFAULT_OUTPUT_TEMPLATE;
+    const subtitleLangs = normalizeSubtitleLangs(req.body.subtitleLangs || req.body.subtitleLang);
     const subtitleFormat = ['srt', 'vtt', 'ass', 'best'].includes(String(req.body.subtitleFormat || ''))
         ? String(req.body.subtitleFormat)
         : 'best';
@@ -1610,7 +2186,7 @@ app.post('/api/download', (req, res) => {
         id,
         url,
         title: normalizeTitle(req.body.title),
-        thumbnail: thumbnail || null,
+        thumbnail: normalizeThumbnail(thumbnail),
         quality: normalizeQuality(req.body.quality),
         isPlaylist: !!isPlaylist,
         autoOpen: !!autoOpen,
@@ -1642,44 +2218,43 @@ app.post('/api/download', (req, res) => {
 });
 
 app.post('/api/action', (req, res) => {
-    const { id, action } = req.body;
+    const id = typeof req.body.id === 'string' ? req.body.id : '';
+    const { action } = req.body;
     const dl = downloads[id];
     if (!dl) return res.status(404).json({ error: 'Bulunamadı' });
     if (!['pause', 'resume', 'cancel'].includes(action)) {
         return res.status(400).json({ error: 'Geçersiz işlem' });
     }
 
-    if (action === 'pause' && dl.process) {
-        dl.status = 'paused';
-        if (process.platform === 'win32') {
-            try { dl.process.kill(); } catch(e) {}
-        } else {
-            try { dl.process.kill('SIGINT'); } catch(e) {}
+    if (action === 'pause') {
+        if (dl._timer) { clearTimeout(dl._timer); dl._timer = null; }
+        if (dl.process) {
+            dl.status = 'paused';
+            // SIGINT lets yt-dlp keep its .part file for --continue.
+            killProcessTree(dl.process, 'SIGINT');
+            emitDownloadProgress(dl, true);
+        } else if (!isTerminalStatus(dl.status) && dl.status !== 'paused') {
+            // Queued, scheduled or still starting: startDownloadTask sees this.
+            dl.status = 'paused';
+            emitDownloadProgress(dl, true);
         }
-        emitDownloadProgress(dl, true);
-    } else if (action === 'resume' && (dl.status === 'paused' || dl.status === 'failed')) {
-        startDownloadTask(id);
-        emitDownloadProgress(dl, true);
+    } else if (action === 'resume') {
+        const st = String(dl.status || '');
+        if (dl.url && !dl.process && !dl._spawning && (st === 'paused' || st === 'failed' || st.startsWith('error:'))) {
+            dl.errorDetail = null;
+            dl._formatRetried = false;
+            dl._retrying = false;
+            startDownloadTask(id);
+        }
     } else if (action === 'cancel') {
         if (dl._timer) { clearTimeout(dl._timer); dl._timer = null; }
-        // Kill the process if running
-        if (dl.process) {
-            try { dl.process.kill(process.platform === 'win32' ? undefined : 'SIGTERM'); } catch(e) {}
-            dl.process = null;
-        }
-        // Remove from downloads map and notify clients
+        // Remove first: the exit handler then knows not to resurrect it.
         delete downloads[id];
         delete progressEmitState[id];
+        if (dl.process) killProcessTree(dl.process);
         io.emit('download-cancelled', { id });
         persistDownloadsState();
-
-        // Kick queued downloads
-        for (const qid in downloads) {
-            if (downloads[qid].status === 'queued') {
-                startDownloadTask(qid);
-                break;
-            }
-        }
+        pumpQueue();
     }
     res.json({ success: true });
 });
@@ -1705,6 +2280,7 @@ app.post('/api/reveal-file', (req, res) => {
     if (!isPathInside(DOWNLOADS_DIR, dl.filePath) || !fs.existsSync(dl.filePath)) {
         return res.status(404).json({ error: 'Dosya acilamadi' });
     }
+    if (requestShellAction('show-item', dl.filePath)) return res.json({ success: true });
     try {
         if (process.platform === 'win32') {
             spawn('explorer.exe', ['/select,', dl.filePath], { detached: true, stdio: 'ignore' }).unref();
@@ -1722,15 +2298,17 @@ app.post('/api/reveal-file', (req, res) => {
 app.post('/api/clear-completed', (req, res) => {
     let changed = false;
     Object.keys(downloads).forEach(id => {
-        const status = String(downloads[id].status || '');
-        if (status === 'completed' || status === 'failed' || status.startsWith('error:')) {
-            // Cleanup progress state
+        const dl = downloads[id];
+        if (isTerminalStatus(dl.status)) {
+            // The file stays on disk; keep the disk scan from re-adding it.
+            if (dl.filePath) clearedFiles.add(pathKey(dl.filePath));
             delete progressEmitState[id];
             delete downloads[id];
             changed = true;
         }
     });
     if (changed) {
+        saveClearedFiles();
         io.emit('initial-state', getSafeDownloads());
         persistDownloadsState();
     }
@@ -1802,16 +2380,25 @@ function debouncedConfigWrite() {
 }
 
 app.post('/api/settings', (req, res) => {
+    // Validate everything first so a rejected request changes nothing.
+    const hasTemplate = typeof req.body.outputTemplate !== 'undefined' && String(req.body.outputTemplate || '').trim();
+    const nextTemplate = hasTemplate ? normalizeOutputTemplate(req.body.outputTemplate) : null;
+    if (hasTemplate && !nextTemplate) {
+        return res.status(400).json({ error: 'Output template must be a relative path' });
+    }
     if (req.body.downloadDir) {
         if (!isSafeDownloadDir(req.body.downloadDir)) {
             return res.status(400).json({ error: 'Download directory must be an absolute path' });
         }
-        appConfig.downloadDir = req.body.downloadDir.trim();
-        DOWNLOADS_DIR = appConfig.downloadDir;
+        const nextDir = req.body.downloadDir.trim();
         try {
-            if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
-            if (syncDownloadsFromDisk(true)) io.emit('initial-state', getSafeDownloads());
-        } catch(e) {}
+            fs.mkdirSync(nextDir, { recursive: true });
+        } catch (e) {
+            return res.status(400).json({ error: `Download directory could not be created: ${e?.message || e}` });
+        }
+        appConfig.downloadDir = nextDir;
+        DOWNLOADS_DIR = nextDir;
+        if (syncDownloadsFromDisk(true)) io.emit('initial-state', getSafeDownloads());
     }
     if (['auto', 'eco', 'normal', 'performance'].includes(req.body.powerMode)) {
         appConfig.powerMode = req.body.powerMode;
@@ -1829,11 +2416,10 @@ app.post('/api/settings', (req, res) => {
     if (typeof req.body.maxConcurrent !== 'undefined') {
         const mc = Math.max(1, Math.min(10, Number.parseInt(req.body.maxConcurrent, 10) || 5));
         appConfig.maxConcurrent = mc;
+        // A higher limit should start waiting downloads right away.
+        setImmediate(pumpQueue);
     }
-    if (typeof req.body.outputTemplate !== 'undefined') {
-        const tpl = String(req.body.outputTemplate || '').trim().slice(0, 200);
-        if (tpl) appConfig.outputTemplate = tpl;
-    }
+    if (nextTemplate) appConfig.outputTemplate = nextTemplate;
     if (typeof req.body.sleepAfterDownload !== 'undefined') {
         appConfig.sleepAfterDownload = !!req.body.sleepAfterDownload;
     }
@@ -1849,11 +2435,13 @@ app.post('/api/settings', (req, res) => {
         if (hk) appConfig.globalHotkey = hk;
     }
     if (typeof req.body.useBrowserCookies !== 'undefined') {
+        if (appConfig.useBrowserCookies !== !!req.body.useBrowserCookies) mediaInfoCache.clear();
         appConfig.useBrowserCookies = !!req.body.useBrowserCookies;
     }
     if (typeof req.body.cookiesBrowser !== 'undefined') {
         const browser = String(req.body.cookiesBrowser || '').toLowerCase();
         if (['chrome', 'firefox', 'edge', 'brave', 'vivaldi', 'opera'].includes(browser)) {
+            if (appConfig.cookiesBrowser !== browser) mediaInfoCache.clear();
             appConfig.cookiesBrowser = browser;
         }
     }
@@ -2010,25 +2598,39 @@ server.on('error', (err) => {
 });
 
 // ─── Graceful shutdown ────────────────────────────────────────────
+let shuttingDown = false;
 function gracefulShutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log(`Received ${signal}, shutting down gracefully...`);
-    // Kill all active yt-dlp processes
+    // Save now: the debounced write would be lost on exit. Running downloads
+    // are restored as paused on the next start.
+    if (_stateWriteTimer) clearTimeout(_stateWriteTimer);
+    try {
+        const toSave = {};
+        for (const id in downloads) toSave[id] = stripInternal(downloads[id]);
+        writeJsonAtomic(getDownloadsStatePath(), toSave);
+    } catch {}
+    // Stop yt-dlp and its ffmpeg children; on Windows they outlive us otherwise.
     for (const id in downloads) {
-        const dl = downloads[id];
-        if (dl.process) {
-            try { dl.process.kill('SIGTERM'); } catch {}
-        }
+        if (downloads[id].process) killProcessTree(downloads[id].process);
     }
     server.close(() => {
         console.log('Server closed.');
         process.exit(0);
     });
-    // Force exit after 5s if server doesn't close
-    setTimeout(() => process.exit(0), 5000);
+    // Force exit after 3s if server doesn't close (open sockets, taskkill)
+    setTimeout(() => process.exit(0), 3000).unref();
 }
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+// Electron main asks over IPC (a Windows kill would skip all cleanup), and a
+// vanished parent means the app is gone.
+process.on('message', (msg) => {
+    if (msg && msg.type === 'shutdown') gracefulShutdown('shutdown');
+});
+process.on('disconnect', () => gracefulShutdown('disconnect'));
 
 server.listen(PORT, '127.0.0.1', () => {
     const addr = server.address();
