@@ -937,6 +937,23 @@ cleanupTempFiles();
 cleanupOldHistory();
 schedulePendingDownloads();
 
+// ─── JavaScript runtime for yt-dlp ────────────────────────────────
+// yt-dlp needs a JS runtime (Node >= 22) for YouTube's challenges, and Node
+// is usually not installed on Windows. Under Electron this server runs on
+// the app binary in Node mode (ELECTRON_RUN_AS_NODE), which yt-dlp accepts
+// as "node"; hand it that binary so downloads do not depend on a system Node.
+const IS_ELECTRON_NODE = !!process.versions.electron;
+
+function getJsRuntimeArg() {
+    return IS_ELECTRON_NODE ? `node:${process.execPath}` : 'node';
+}
+
+function getYtDlpSpawnOptions(extra = {}) {
+    const options = { windowsHide: true, ...extra };
+    if (IS_ELECTRON_NODE) options.env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
+    return options;
+}
+
 // ─── Media info cache ─────────────────────────────────────────────
 // /api/info and /api/validate-media both need a yt-dlp extraction, which
 // takes seconds. Concurrent and repeated lookups for one URL (validate then
@@ -949,7 +966,7 @@ const mediaInfoCache = new Map(); // url -> { promise, expiresAt }
 
 async function extractMediaInfo(url) {
     const ytDlpCmd = await ensureYtDlpAvailable();
-    const args = ['--js-runtimes', 'node', '-J', '--no-playlist'];
+    const args = ['--js-runtimes', getJsRuntimeArg(), '-J', '--no-playlist'];
     appendBrowserCookieArgs(args);
     args.push('--', url);
     return new Promise((resolve) => {
@@ -967,7 +984,7 @@ async function extractMediaInfo(url) {
         };
         let proc;
         try {
-            proc = spawn(ytDlpCmd, args, { windowsHide: true });
+            proc = spawn(ytDlpCmd, args, getYtDlpSpawnOptions());
         } catch (e) {
             return finish({ info: null, code: -1, stderr: String(e?.message || e), timedOut });
         }
@@ -1849,7 +1866,7 @@ async function startDownloadTask(id) {
         // history retention based on when the file was actually saved.
         '--no-mtime',
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        '--js-runtimes', 'node',
+        '--js-runtimes', getJsRuntimeArg(),
         '--progress',
         '--progress-template', `download:${PROGRESS_MARK}%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s`,
         '--print', `after_move:${FILE_MARK}%(filepath)s`,
@@ -1924,7 +1941,7 @@ async function startDownloadTask(id) {
     let proc;
     try {
         // detached on POSIX = own process group, so pause/cancel also stop ffmpeg.
-        proc = spawn(ytDlpCmd, args, { windowsHide: true, detached: process.platform !== 'win32' });
+        proc = spawn(ytDlpCmd, args, getYtDlpSpawnOptions({ detached: process.platform !== 'win32' }));
         proc._unigetGroup = process.platform !== 'win32';
     } catch (e) {
         dl._spawning = false;

@@ -1562,22 +1562,24 @@ window.addEventListener('load', () => {
             }
         }
 
-        card.classList.remove('completed', 'failed', 'paused', 'downloading');
-        if (icon) {
-            if (rawStatus === 'completed') {
-                icon.className = 'fas fa-check';
-                card.classList.add('completed');
-            } else if (rawStatus.startsWith('error:') || rawStatus === 'failed') {
-                icon.className = 'fas fa-exclamation-triangle';
-                card.classList.add('failed');
-            } else if (rawStatus === 'paused') {
-                icon.className = 'fas fa-pause';
-                card.classList.add('paused');
-            } else {
-                icon.className = 'fas fa-arrow-down';
-                card.classList.add('downloading');
-            }
+        // State classes apply to every card; only cards without a thumbnail
+        // have the status icon (thumbnail cards used to miss the styling).
+        let stateClass = 'downloading';
+        let iconClass = 'fas fa-arrow-down';
+        if (rawStatus === 'completed') {
+            stateClass = 'completed';
+            iconClass = 'fas fa-check';
+        } else if (rawStatus.startsWith('error:') || rawStatus === 'failed') {
+            stateClass = 'failed';
+            iconClass = 'fas fa-exclamation-triangle';
+        } else if (rawStatus === 'paused') {
+            stateClass = 'paused';
+            iconClass = 'fas fa-pause';
         }
+        for (const cls of ['completed', 'failed', 'paused', 'downloading']) {
+            card.classList.toggle(cls, cls === stateClass);
+        }
+        if (icon) icon.className = iconClass;
 
         if (actions) {
             const isDownloading = ['downloading', 'starting', 'queued'].includes(rawStatus);

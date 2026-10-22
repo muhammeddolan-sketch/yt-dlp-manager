@@ -36,7 +36,7 @@ Simply download the latest `UniGet-Setup-<version>.exe` from the [Releases](http
 ### Developer Setup
 1. **Clone & Install**: `npm install`
 2. **Start Development**: `npm start`
-3. **Run Checks**: `npm test`
+3. **Run Checks**: `npm test` (on Linux/macOS also runs the download runner against a fake yt-dlp); `npm run test:electron` drives the real Electron app over DevTools (needs a display or `xvfb-run`, and port 3000 free)
 4. **Build Installer**: `npm run dist:win`
 5. **Package Browser Extension**: `npm run pack:extension`
 
@@ -58,6 +58,7 @@ Alternatively, load the latest `UniGet-Extension-v<version>.zip` (unpacked) into
 - **Clear list** only hides entries; the files stay on disk and are not re-added by the library scan. Files older than the history retention period are not listed.
 - Pausing, cancelling and quitting stop yt-dlp together with its FFmpeg child processes.
 - Without FFmpeg, "audio only" keeps the original audio stream (no MP3 conversion) and trimming is unavailable.
+- yt-dlp needs a JavaScript runtime (Node 22+) for YouTube; UniGet passes its own Electron binary in Node mode, so no separate Node.js install is required.
 
 ## Security Notes
 
