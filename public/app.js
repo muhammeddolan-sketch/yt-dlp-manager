@@ -277,6 +277,9 @@ window.addEventListener('load', () => {
             try {
                 if (window.unigetAPI) window.unigetAPI.changeLang(lang);
             } catch(e) { /* Non-Electron environment */ }
+            // i18n.js cannot reach renderList (it lives in this closure), so
+            // cards kept their old-language status texts and tooltips.
+            if (downloadList) renderList();
         };
         
         if (typeof updateUI === 'function') updateUI(); 

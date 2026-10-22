@@ -119,6 +119,13 @@ function isRunning(pid) {
         assert.strictEqual(await ui.evaluate(`document.getElementById('modalTitle').innerText`), 'Türkçe başlık ğüşıöç 🎬');
         await ui.evaluate(`document.getElementById('confirmDownload').click(); true`);
         await waitFor(() => ui.evaluate(`!!document.querySelector('.download-card.completed')`), 'completed card');
+        // Switching language re-renders the cards' status text.
+        const badge = `document.querySelector('.download-card.completed .status-badge').textContent.trim()`;
+        await ui.evaluate(`setLanguage('en'); true`);
+        const english = await ui.evaluate(badge);
+        assert.strictEqual(english, await ui.evaluate(`t('completed_status')`));
+        await ui.evaluate(`setLanguage('tr'); true`);
+        assert.notStrictEqual(await ui.evaluate(badge), english, 'kart dil değişince güncellenmeli');
         const ytArgs = fs.readFileSync(argsLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((a) => a.includes('--progress'));
         assert.strictEqual(ytArgs[ytArgs.indexOf('--js-runtimes') + 1], `node:${electronBin}`, 'yt-dlp Electron Node çalışma ortamını almalı');
 
