@@ -1,6 +1,7 @@
 const assert = require('assert');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 
@@ -100,6 +101,48 @@ async function statusFor(url, options) {
         assert.ok(!malformedText.includes('body-parser'));
         assert.ok(!malformedText.includes('SyntaxError'));
 
+        // DNS rebinding: a foreign Host header must be rejected even same-origin.
+        const rebindStatus = await new Promise((resolve, reject) => {
+            const req = http.request({
+                host: '127.0.0.1',
+                port,
+                path: '/api/settings',
+                method: 'GET',
+                headers: { Host: `evil.example:${port}` }
+            }, (res) => { res.resume(); resolve(res.statusCode); });
+            req.on('error', reject);
+            req.end();
+        });
+        assert.strictEqual(rebindStatus, 421);
+
+        // Other local web servers are not a trusted origin.
+        const foreignPreflight = await fetch(`${baseUrl}/api/settings`, {
+            method: 'OPTIONS',
+            headers: {
+                Origin: 'http://localhost:8080',
+                'Access-Control-Request-Method': 'POST',
+                'Access-Control-Request-Headers': 'content-type,x-uniget-client'
+            }
+        });
+        await foreignPreflight.text();
+        assert.strictEqual(foreignPreflight.headers.get('access-control-allow-origin'), null);
+
+        // Output templates must not escape the downloads folder.
+        for (const outputTemplate of ['/tmp/evil.%(ext)s', '../evil.%(ext)s', 'C:\\Users\\x\\evil.exe', 'thumbnail:/tmp/x']) {
+            const badTemplate = await statusFor(`${baseUrl}/api/download`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-UniGet-Client': 'desktop' },
+                body: JSON.stringify({ url: 'https://example.com/video', outputTemplate })
+            });
+            assert.strictEqual(badTemplate, 400, `outputTemplate kabul edilmemeli: ${outputTemplate}`);
+            const badSetting = await statusFor(`${baseUrl}/api/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-UniGet-Client': 'desktop' },
+                body: JSON.stringify({ outputTemplate })
+            });
+            assert.strictEqual(badSetting, 400, `ayar outputTemplate kabul edilmemeli: ${outputTemplate}`);
+        }
+
         const invalidTime = await statusFor(`${baseUrl}/api/download`, {
             method: 'POST',
             headers: {
@@ -119,11 +162,13 @@ async function statusFor(url, options) {
             body: JSON.stringify({
                 url: 'https://example.com/video.mp4',
                 title: 'Smoke Test',
-                quality: '720'
+                quality: '720',
+                thumbnail: 'javascript:alert(1)'
             })
         });
         assert.strictEqual(createRes.status, 200);
         const created = await createRes.json();
+        assert.strictEqual(created.download.thumbnail, null, 'http(s) olmayan thumbnail saklanmamalı');
         assert.ok(created.id);
         assert.ok(created.download);
         assert.strictEqual(created.download.id, created.id);

@@ -15,13 +15,32 @@ const APP_VERSION = require('./package.json').version;
 const app = express();
 app.disable('x-powered-by');
 const server = http.createServer(app);
+const PORT = Number.parseInt(process.env.PORT || '3000', 10) || 3000;
+
+function isLoopbackHostname(host) {
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+}
+
+// DNS rebinding guard: a hostile site can point its own domain at 127.0.0.1
+// and then talk to us "same-origin". Only accept loopback Host headers.
+function isAllowedHostHeader(hostHeader) {
+    if (typeof hostHeader !== 'string' || !hostHeader) return false;
+    try {
+        const parsed = new URL(`http://${hostHeader}`);
+        const port = parsed.port ? Number(parsed.port) : 80;
+        return isLoopbackHostname(parsed.hostname) && port === PORT;
+    } catch {
+        return false;
+    }
+}
+
 function isAllowedOrigin(origin) {
     if (!origin) return false;
     try {
         const parsed = new URL(origin);
         const host = parsed.hostname;
-        const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-        if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && isLoopback) return true;
+        // Only our own UI origin; other local web servers are not trusted.
+        if (parsed.protocol === 'http:' && isLoopbackHostname(host) && Number(parsed.port || 80) === PORT) return true;
         if (parsed.protocol === 'chrome-extension:' || parsed.protocol === 'moz-extension:') return true;
     } catch {}
     return false;
@@ -38,7 +57,7 @@ const corsOptions = {
 const io = new Server(server, {
     cors: corsOptions,
     allowRequest(req, callback) {
-        callback(null, isAllowedOrigin(req.headers.origin));
+        callback(null, isAllowedHostHeader(req.headers.host) && isAllowedOrigin(req.headers.origin));
     },
     transports: ['websocket', 'polling'],
     perMessageDeflate: false,
@@ -46,7 +65,6 @@ const io = new Server(server, {
     pingTimeout: 20000
 });
 
-const PORT = Number.parseInt(process.env.PORT || '3000', 10) || 3000;
 const IS_TEST_RUNNER_DISABLED = process.env.UNIGET_TEST_DISABLE_RUNNER === '1';
 const homeDir = os.homedir();
 
@@ -64,6 +82,8 @@ function getConfigPath() {
     return path.join(homeDir, '.config', 'uniget', 'config.json');
 }
 
+const DEFAULT_OUTPUT_TEMPLATE = '%(title).180B [%(id)s].%(ext)s';
+
 let appConfig = {
     downloadDir: (() => {
         if (process.platform === 'win32') return path.join(homeDir, 'Videos', 'IDM');
@@ -78,7 +98,7 @@ let appConfig = {
     lowNoiseNotifications: true,
     useBrowserCookies: false,
     cookiesBrowser: 'chrome',
-    outputTemplate: '%(title).180B [%(id)s].%(ext)s',
+    outputTemplate: DEFAULT_OUTPUT_TEMPLATE,
     maxConcurrent: 5,
     sleepAfterDownload: false,
     historyRetentionDays: 30,
@@ -107,6 +127,12 @@ let DOWNLOADS_DIR = appConfig.downloadDir;
 
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
+app.use((req, res, next) => {
+    if (!isAllowedHostHeader(req.headers.host)) {
+        return res.status(421).json({ error: 'Invalid Host header' });
+    }
+    next();
+});
 app.use(cors(corsOptions));
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -387,6 +413,41 @@ function hasInvalidTime(value) {
 function normalizeTitle(value) {
     if (typeof value !== 'string') return 'processed';
     return value.trim().slice(0, 300) || 'processed';
+}
+
+// yt-dlp's -o accepts absolute paths and "..", which would escape --paths home
+// (e.g. dropping a file into the Startup folder). Keep templates relative.
+function normalizeOutputTemplate(value) {
+    if (typeof value !== 'string') return null;
+    const tpl = value.trim().slice(0, 200);
+    if (!tpl) return null;
+    if (/[\0\r\n]/.test(tpl)) return null;
+    if (path.isAbsolute(tpl) || path.win32.isAbsolute(tpl) || /^[a-zA-Z]:/.test(tpl) || /^[\\/~]/.test(tpl)) return null;
+    if (tpl.split(/[\\/]+/).some(part => part === '..')) return null;
+    // Output-type prefixes ("thumbnail:/abs/path") bypass the checks above.
+    if (/^(?:subtitle|thumbnail|description|annotation|infojson|link|pl_thumbnail|pl_description|pl_infojson|chapter|pl_video)\s*:/i.test(tpl)) return null;
+    return tpl;
+}
+
+function normalizeThumbnail(value) {
+    const url = parseHttpUrl(value);
+    return url && url.length <= 2048 ? url : null;
+}
+
+function normalizeSubtitleLangs(value) {
+    if (typeof value !== 'string') return '';
+    const langs = value.trim().slice(0, 120);
+    return /^[\w,.*+\-]*$/.test(langs) ? langs : '';
+}
+
+// Quote a value so the platform shell treats it as one literal argument.
+function shellQuote(value) {
+    const str = String(value);
+    if (process.platform === 'win32') {
+        // Windows paths cannot contain '"'; also neutralize %VAR% expansion.
+        return `"${str.replace(/"/g, '').replace(/%/g, '"^%"')}"`;
+    }
+    return `'${str.replace(/'/g, `'\\''`)}'`;
 }
 
 function isSafeDownloadDir(value) {
@@ -794,13 +855,24 @@ function downloadFile(url, destPath, timeoutMs = 60000, redirectsLeft = 5) {
         const request = requestModule.get(url, { headers: { 'User-Agent': `UniGet Pro v${APP_VERSION}` } }, (res) => {
             // Follow redirects (bounded), keeping the caller's timeout budget
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                res.resume();
                 file.close(() => {
                     try { fs.unlinkSync(destPath); } catch {}
                     if (redirectsLeft <= 0) {
                         reject(new Error('Download failed: too many redirects'));
                         return;
                     }
-                    downloadFile(res.headers.location, destPath, timeoutMs, redirectsLeft - 1).then(resolve, reject);
+                    let next;
+                    try { next = new URL(res.headers.location, url); } catch {
+                        reject(new Error('Download failed: invalid redirect'));
+                        return;
+                    }
+                    // Executables are fetched over HTTPS; never follow a downgrade.
+                    if (next.protocol !== 'https:') {
+                        reject(new Error('Download failed: insecure redirect'));
+                        return;
+                    }
+                    downloadFile(next.toString(), destPath, timeoutMs, redirectsLeft - 1).then(resolve, reject);
                 });
                 return;
             }
@@ -834,6 +906,40 @@ function downloadFile(url, destPath, timeoutMs = 60000, redirectsLeft = 5) {
             });
         });
     });
+}
+
+const YTDLP_EXE_URL = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
+const YTDLP_SUMS_URL = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS';
+
+function sha256File(filePath) {
+    return new Promise((resolve, reject) => {
+        const hash = crypto.createHash('sha256');
+        fs.createReadStream(filePath)
+            .on('error', reject)
+            .on('data', chunk => hash.update(chunk))
+            .on('end', () => resolve(hash.digest('hex')));
+    });
+}
+
+// Download yt-dlp.exe and check it against the release's SHA2-256SUMS so a
+// tampered or truncated binary is never executed.
+async function downloadVerifiedYtDlp(destPath, timeoutMs) {
+    const sumsPath = `${destPath}.sums`;
+    try {
+        await downloadFile(YTDLP_SUMS_URL, sumsPath, 60000);
+        const sums = fs.readFileSync(sumsPath, 'utf8');
+        const line = sums.split(/\r?\n/).find(l => /^[a-f0-9]{64}\s+\*?yt-dlp\.exe$/i.test(l.trim()));
+        if (!line) throw new Error('yt-dlp.exe checksum not found in SHA2-256SUMS');
+        const expected = line.trim().slice(0, 64).toLowerCase();
+        await downloadFile(YTDLP_EXE_URL, destPath, timeoutMs);
+        const actual = await sha256File(destPath);
+        if (actual !== expected) {
+            try { fs.rmSync(destPath, { force: true }); } catch {}
+            throw new Error('yt-dlp.exe checksum mismatch');
+        }
+    } finally {
+        try { fs.rmSync(sumsPath, { force: true }); } catch {}
+    }
 }
 
 async function ensureYtDlpAvailable() {
@@ -873,10 +979,9 @@ async function ensureYtDlpAvailable() {
     }
 
     // Download yt-dlp.exe (stable) from official GitHub release.
-    const url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
     try {
         console.log('Downloading yt-dlp.exe...');
-        await downloadFile(url, bundled);
+        await downloadVerifiedYtDlp(bundled, 60000);
         // Verify size after download
         if (fs.existsSync(bundled) && fs.statSync(bundled).size > 1000000) {
             _cachedYtDlpPath = bundled;
@@ -956,9 +1061,8 @@ async function updateYtDlp() {
         fs.mkdirSync(binDir, { recursive: true });
         try { fs.rmSync(tempPath, { force: true }); } catch {}
 
-        const url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
         console.log('Downloading latest yt-dlp.exe...');
-        await downloadFile(url, tempPath, 5 * 60 * 1000);
+        await downloadVerifiedYtDlp(tempPath, 5 * 60 * 1000);
 
         const stat = fs.existsSync(tempPath) ? fs.statSync(tempPath) : null;
         if (!stat || stat.size < 1000000) {
@@ -1422,7 +1526,11 @@ async function startDownloadTask(id) {
             args.push('--convert-subs', dl.subtitleFormat);
         }
     }
-    args.push('-o', dl.outputTemplate || appConfig.outputTemplate || '%(title).180B [%(id)s].%(ext)s', dl.url);
+    // Re-validate: persisted state/config from older versions may hold unsafe templates.
+    const outputTemplate = normalizeOutputTemplate(dl.outputTemplate)
+        || normalizeOutputTemplate(appConfig.outputTemplate)
+        || DEFAULT_OUTPUT_TEMPLATE;
+    args.push('-o', outputTemplate, '--', dl.url);
 
     const ytDlpCmd = await ensureYtDlpAvailable();
     console.log(`Starting yt-dlp with args: ${ytDlpCmd} ${args.join(' ')}`);
@@ -1435,16 +1543,18 @@ async function startDownloadTask(id) {
         for (let line of lines) {
             line = line.trim();
             if (!line) continue;
-            if (line.includes('|')) {
+            // Check the printed file path first: titles can contain '|' and
+            // must not be mistaken for (and rendered as) progress fields.
+            if (fs.existsSync(line) && isPathInside(DOWNLOADS_DIR, line)) {
+                dl.filePath = line;
+            } else if (line.includes('|')) {
                 const parts = line.split('|');
                 if (parts.length >= 3) {
                     dl.progress = parseFloat(parts[0].replace('%', '').trim()) || dl.progress;
-                    dl.speed = parts[1].trim();
-                    dl.eta = parts[2].trim();
+                    dl.speed = parts[1].trim().slice(0, 32);
+                    dl.eta = parts[2].trim().slice(0, 32);
                     emitDownloadProgress(dl);
                 }
-            } else if (fs.existsSync(line) && isPathInside(DOWNLOADS_DIR, line)) {
-                dl.filePath = line;
             }
         }
     });
@@ -1532,9 +1642,11 @@ async function startDownloadTask(id) {
         }
 
         if (appConfig.postDownloadCommand && dl.status === 'completed' && dl.filePath) {
+            // File names come from remote video titles, so they must never be
+            // spliced into the shell unquoted. Drop any quotes the user put
+            // around the placeholder and quote the value ourselves.
             const cmd = appConfig.postDownloadCommand
-                .replace(/\{file\}/g, dl.filePath)
-                .replace(/\{dir\}/g, path.dirname(dl.filePath));
+                .replace(/(["']?)\{(file|dir)\}\1/g, (_m, _q, key) => shellQuote(key === 'file' ? dl.filePath : path.dirname(dl.filePath)));
             try { exec(cmd, { windowsHide: true }); } catch {}
         }
 
@@ -1585,12 +1697,13 @@ app.post('/api/download', (req, res) => {
         const ts = Date.parse(req.body.scheduleAt);
         if (Number.isFinite(ts) && ts > Date.now()) scheduledAt = new Date(ts).toISOString();
     }
-    const outputTemplate = typeof req.body.outputTemplate === 'string' && req.body.outputTemplate.trim()
-        ? req.body.outputTemplate.trim().slice(0, 200)
-        : (appConfig.outputTemplate || '%(title).180B [%(id)s].%(ext)s');
-    const subtitleLangs = typeof (req.body.subtitleLangs || req.body.subtitleLang) === 'string'
-        ? String(req.body.subtitleLangs || req.body.subtitleLang).trim().slice(0, 120)
-        : '';
+    if (typeof req.body.outputTemplate === 'string' && req.body.outputTemplate.trim() && !normalizeOutputTemplate(req.body.outputTemplate)) {
+        return res.status(400).json({ error: 'Output template must be a relative path' });
+    }
+    const outputTemplate = normalizeOutputTemplate(req.body.outputTemplate)
+        || normalizeOutputTemplate(appConfig.outputTemplate)
+        || DEFAULT_OUTPUT_TEMPLATE;
+    const subtitleLangs = normalizeSubtitleLangs(req.body.subtitleLangs || req.body.subtitleLang);
     const subtitleFormat = ['srt', 'vtt', 'ass', 'best'].includes(String(req.body.subtitleFormat || ''))
         ? String(req.body.subtitleFormat)
         : 'best';
@@ -1610,7 +1723,7 @@ app.post('/api/download', (req, res) => {
         id,
         url,
         title: normalizeTitle(req.body.title),
-        thumbnail: thumbnail || null,
+        thumbnail: normalizeThumbnail(thumbnail),
         quality: normalizeQuality(req.body.quality),
         isPlaylist: !!isPlaylist,
         autoOpen: !!autoOpen,
@@ -1830,9 +1943,10 @@ app.post('/api/settings', (req, res) => {
         const mc = Math.max(1, Math.min(10, Number.parseInt(req.body.maxConcurrent, 10) || 5));
         appConfig.maxConcurrent = mc;
     }
-    if (typeof req.body.outputTemplate !== 'undefined') {
-        const tpl = String(req.body.outputTemplate || '').trim().slice(0, 200);
-        if (tpl) appConfig.outputTemplate = tpl;
+    if (typeof req.body.outputTemplate !== 'undefined' && String(req.body.outputTemplate || '').trim()) {
+        const tpl = normalizeOutputTemplate(req.body.outputTemplate);
+        if (!tpl) return res.status(400).json({ error: 'Output template must be a relative path' });
+        appConfig.outputTemplate = tpl;
     }
     if (typeof req.body.sleepAfterDownload !== 'undefined') {
         appConfig.sleepAfterDownload = !!req.body.sleepAfterDownload;

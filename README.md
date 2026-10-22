@@ -54,8 +54,11 @@ Alternatively, load the latest `UniGet-Extension-v<version>.zip` (unpacked) into
 
 ## Security Notes
 
-- The local API binds only to `127.0.0.1`; state-changing requests require the `X-UniGet-Client` header and cross-origin access is restricted.
-- The optional **post-download command** is executed by your local shell after a download completes. Only enter commands you trust.
+- The local API binds only to `127.0.0.1`; state-changing requests require the `X-UniGet-Client` header and cross-origin access is restricted to the UniGet UI and browser extensions.
+- Requests whose `Host` header is not `127.0.0.1`/`localhost` on the UniGet port are rejected (DNS rebinding protection).
+- Output templates must be relative paths; absolute paths and `..` are rejected so downloads cannot be written outside the download folder.
+- The auto-downloaded `yt-dlp.exe` is verified against the release's `SHA2-256SUMS` before use.
+- The optional **post-download command** is executed by your local shell after a download completes. `{file}` and `{dir}` are substituted as safely quoted arguments, but only enter commands you trust.
 
 ## License
 This project is licensed under the **ISC License**.

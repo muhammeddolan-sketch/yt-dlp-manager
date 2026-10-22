@@ -1463,20 +1463,23 @@ window.addEventListener('load', () => {
             statusText = rawStatus.substring(0, 80);
         }
         // Sanitize for safe innerHTML insertion
-        const safeStatus = statusText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        const safeStatus = escapeHtml(statusText);
+        const safeSpeed = escapeHtml(dl.speed || '--');
+        const safeEta = escapeHtml(dl.eta || '--:--');
+        const safeProgress = Number(dl.progress) || 0;
 
         if (meta) {
             const doneSize = rawStatus === 'completed' && dl.fileSize ? formatFileSize(dl.fileSize) : '';
             const metaHtml = rawStatus === 'completed'
                 ? `
-                    <span>${dl.progress || 100}%</span>
-                    ${doneSize ? `<span>${doneSize}</span>` : ''}
+                    <span>${safeProgress || 100}%</span>
+                    ${doneSize ? `<span>${escapeHtml(doneSize)}</span>` : ''}
                     <span class="status-badge" style="text-transform: capitalize;">${safeStatus}</span>
                 `
                 : `
-                    <span>${dl.progress || 0}%</span>
-                    <span>${dl.speed || '--'}</span>
-                    <span>${dl.eta || '--:--'}</span>
+                    <span>${safeProgress}%</span>
+                    <span>${safeSpeed}</span>
+                    <span>${safeEta}</span>
                     <span class="status-badge" style="text-transform: capitalize;">${safeStatus}</span>
                 `;
             if (meta._html !== metaHtml) {
@@ -1583,13 +1586,26 @@ window.addEventListener('load', () => {
         chartCtx.stroke();
     }
 
+    function escapeHtml(value) {
+        return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    function isHttpUrl(value) {
+        try {
+            const parsed = new URL(String(value || ''));
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+            return false;
+        }
+    }
+
     function createCard(dl) {
         const card = document.createElement('div');
         card.className = 'download-card';
         card.id = `dl-${dl.id}`;
-        const safeTitle = (dl.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-        const thumbHtml = dl.thumbnail
-            ? `<img class="card-thumb" src="${dl.thumbnail.replace(/"/g,'&quot;')}" alt="" loading="lazy" decoding="async">`
+        const safeTitle = escapeHtml(dl.title || '');
+        const thumbHtml = isHttpUrl(dl.thumbnail)
+            ? `<img class="card-thumb" src="${escapeHtml(dl.thumbnail)}" alt="" loading="lazy" decoding="async">`
             : `<div class="card-icon"><i class="fas fa-arrow-down"></i></div>`;
         card.innerHTML = `
             ${thumbHtml}

@@ -31,6 +31,41 @@ const http = require('http');
 // Optimization: Disable hardware acceleration
 app.disableHardwareAcceleration();
 
+// Windows may only show our own UI; anything else (links in remote metadata,
+// window.open, drag-and-drop) goes to the system browser or is dropped.
+function isAppUrl(url) {
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol === 'file:') {
+            return path.resolve(decodeURIComponent(parsed.pathname).replace(/^\/([a-zA-Z]:)/, '$1')) === path.join(__dirname, 'public', 'mini.html');
+        }
+        return parsed.protocol === 'http:' && parsed.hostname === '127.0.0.1' && parsed.port === '3000';
+    } catch {
+        return false;
+    }
+}
+
+function openExternalIfWeb(url) {
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') shell.openExternal(parsed.toString());
+    } catch (e) {}
+}
+
+app.on('web-contents-created', (_event, contents) => {
+    contents.setWindowOpenHandler(({ url }) => {
+        openExternalIfWeb(url);
+        return { action: 'deny' };
+    });
+    contents.on('will-navigate', (event, url) => {
+        if (!isAppUrl(url)) {
+            event.preventDefault();
+            openExternalIfWeb(url);
+        }
+    });
+    contents.on('will-attach-webview', (event) => event.preventDefault());
+});
+
 if (!app.isPackaged) {
     app.setPath('userData', path.join(__dirname, '.tmp', 'electron-user-data'));
 }
