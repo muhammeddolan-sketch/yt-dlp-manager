@@ -5,6 +5,7 @@ const allowedExternalProtocols = new Set(['http:', 'https:']);
 contextBridge.exposeInMainWorld('unigetAPI', {
     changeLang: (lang) => ipcRenderer.send('change-lang', lang),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
+    getApiToken: () => ipcRenderer.invoke('get-api-token'),
     focusWindow: () => ipcRenderer.send('focus-window'),
     openMain: () => ipcRenderer.send('open-main'),
     setAlwaysOnTop: (enabled) => ipcRenderer.send('toggle-always-on-top', !!enabled),

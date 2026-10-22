@@ -47,7 +47,7 @@ function isAllowedOrigin(origin) {
 }
 
 const corsOptions = {
-    allowedHeaders: ['Content-Type', 'X-UniGet-Client'],
+    allowedHeaders: ['Content-Type', 'X-UniGet-Client', 'X-UniGet-Token'],
     methods: ['GET', 'POST', 'OPTIONS'],
     origin(origin, callback) {
         callback(null, isAllowedOrigin(origin));
@@ -148,6 +148,187 @@ app.use('/api', (req, res, next) => {
         return res.status(403).json({ error: 'UniGet client header is required' });
     }
     next();
+});
+
+// ─── Client authentication ────────────────────────────────────────
+// Origin checks and X-UniGet-Client only stop web pages; any installed browser
+// extension can send those. Every API call therefore needs a secret token:
+// the desktop UI gets it from the Electron main process, browser helpers pair
+// once with an in-app approval and may only use the download endpoints.
+const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
+const PAIR_TIMEOUT_MS = 120000;
+const PAIR_DENY_COOLDOWN_MS = 60000;
+
+function getApiTokenPath() {
+    return path.join(getAppDataDir(), 'api-token');
+}
+
+function getPairedClientsPath() {
+    return path.join(getAppDataDir(), 'paired-clients.json');
+}
+
+function loadOrCreateDesktopToken() {
+    if (TOKEN_PATTERN.test(process.env.UNIGET_API_TOKEN || '')) return process.env.UNIGET_API_TOKEN;
+    const tokenPath = getApiTokenPath();
+    try {
+        const existing = fs.readFileSync(tokenPath, 'utf8').trim();
+        if (TOKEN_PATTERN.test(existing)) return existing;
+    } catch {}
+    const token = crypto.randomBytes(32).toString('hex');
+    try {
+        fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
+        fs.writeFileSync(tokenPath, token, { mode: 0o600 });
+    } catch (e) {
+        console.warn('API token could not be saved:', e?.message || e);
+    }
+    return token;
+}
+
+const DESKTOP_TOKEN = loadOrCreateDesktopToken();
+
+function hashToken(token) {
+    return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+// Paired tokens are stored hashed: sha256(token) -> { origin, client, createdAt }
+let pairedClients = {};
+try {
+    const saved = JSON.parse(fs.readFileSync(getPairedClientsPath(), 'utf8'));
+    if (saved && typeof saved === 'object') pairedClients = saved;
+} catch {}
+
+function savePairedClients() {
+    try {
+        const p = getPairedClientsPath();
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, JSON.stringify(pairedClients, null, 2), { mode: 0o600 });
+    } catch (e) {
+        console.warn('Paired clients could not be saved:', e?.message || e);
+    }
+}
+
+function tokensEqual(a, b) {
+    const left = Buffer.from(String(a));
+    const right = Buffer.from(String(b));
+    return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function authenticateClient(token, origin) {
+    if (typeof token !== 'string' || !TOKEN_PATTERN.test(token)) return null;
+    if (tokensEqual(token, DESKTOP_TOKEN)) return { role: 'desktop' };
+    const entry = pairedClients[hashToken(token)];
+    if (!entry) return null;
+    // A token is bound to the extension origin that paired it.
+    if (origin && entry.origin && origin !== entry.origin) return null;
+    return { role: 'paired', origin: entry.origin };
+}
+
+const PUBLIC_API_ROUTES = [
+    ['GET', /^\/health$/],
+    ['POST', /^\/pair$/],
+    ['POST', /^\/pair\/poll$/]
+];
+// Least privilege for browser helpers: queue and inspect downloads only.
+const PAIRED_CLIENT_ROUTES = [
+    ['POST', /^\/info$/],
+    ['POST', /^\/validate-media$/],
+    ['POST', /^\/download$/],
+    ['GET', /^\/status\/[^/]+$/]
+];
+
+function matchesRoute(routes, req) {
+    return routes.some(([method, pattern]) => method === req.method && pattern.test(req.path));
+}
+
+app.use('/api', (req, res, next) => {
+    if (req.method === 'OPTIONS' || matchesRoute(PUBLIC_API_ROUTES, req)) return next();
+    const auth = authenticateClient(req.get('X-UniGet-Token'), req.headers.origin);
+    if (!auth) return res.status(401).json({ error: 'auth_required' });
+    if (auth.role !== 'desktop' && !matchesRoute(PAIRED_CLIENT_ROUTES, req)) {
+        return res.status(403).json({ error: 'not_allowed' });
+    }
+    next();
+});
+
+// Pairing: the helper asks, the Electron main process shows an approval
+// dialog, and the helper polls with its request id until it gets a token.
+const pendingPairings = new Map(); // requestId -> { origin, client, status, token, expiresAt }
+const pairDeniedUntil = new Map(); // origin -> timestamp
+
+function prunePairings() {
+    const now = Date.now();
+    for (const [id, pairing] of pendingPairings) {
+        if (pairing.expiresAt < now) pendingPairings.delete(id);
+    }
+    for (const [origin, until] of pairDeniedUntil) {
+        if (until < now) pairDeniedUntil.delete(origin);
+    }
+}
+
+app.post('/api/pair', (req, res) => {
+    const origin = String(req.headers.origin || '');
+    // Web pages (including our own UI opened in a browser) never pair.
+    if (/^https?:/i.test(origin)) return res.status(403).json({ error: 'pairing_not_allowed' });
+    if (typeof process.send !== 'function' || !process.connected) {
+        return res.status(503).json({ error: 'pairing_unavailable' });
+    }
+    prunePairings();
+    if (pairDeniedUntil.has(origin)) return res.status(429).json({ error: 'pairing_denied' });
+    for (const [id, pairing] of pendingPairings) {
+        if (pairing.status !== 'pending') continue;
+        if (pairing.origin === origin) return res.status(202).json({ requestId: id, expiresInMs: pairing.expiresAt - Date.now() });
+        return res.status(429).json({ error: 'pairing_busy' });
+    }
+    const client = req.get('X-UniGet-Client') === 'userscript' ? 'userscript' : 'extension';
+    const requestId = crypto.randomBytes(16).toString('hex');
+    pendingPairings.set(requestId, { origin, client, status: 'pending', token: null, expiresAt: Date.now() + PAIR_TIMEOUT_MS });
+    try {
+        process.send({ type: 'pair-request', requestId, origin, client });
+    } catch {
+        pendingPairings.delete(requestId);
+        return res.status(503).json({ error: 'pairing_unavailable' });
+    }
+    res.status(202).json({ requestId, expiresInMs: PAIR_TIMEOUT_MS });
+});
+
+app.post('/api/pair/poll', (req, res) => {
+    prunePairings();
+    const requestId = typeof req.body.requestId === 'string' ? req.body.requestId : '';
+    const pairing = pendingPairings.get(requestId);
+    if (!pairing || pairing.origin !== String(req.headers.origin || '')) {
+        return res.status(404).json({ status: 'expired' });
+    }
+    if (pairing.status === 'pending') return res.json({ status: 'pending' });
+    pendingPairings.delete(requestId);
+    if (pairing.status === 'approved') return res.json({ status: 'approved', token: pairing.token });
+    res.json({ status: 'denied' });
+});
+
+process.on('message', (msg) => {
+    if (!msg || msg.type !== 'pair-response') return;
+    const pairing = pendingPairings.get(msg.requestId);
+    if (!pairing || pairing.status !== 'pending') return;
+    if (msg.approved === true) {
+        const token = crypto.randomBytes(32).toString('hex');
+        pairedClients[hashToken(token)] = { origin: pairing.origin, client: pairing.client, createdAt: new Date().toISOString() };
+        savePairedClients();
+        pairing.status = 'approved';
+        pairing.token = token;
+    } else {
+        pairing.status = 'denied';
+        pairDeniedUntil.set(pairing.origin, Date.now() + PAIR_DENY_COOLDOWN_MS);
+    }
+});
+
+app.get('/api/pair/clients', (req, res) => {
+    const clients = Object.values(pairedClients).map(({ origin, client, createdAt }) => ({ origin, client, createdAt }));
+    res.json({ count: clients.length, clients });
+});
+
+app.post('/api/pair/revoke-all', (req, res) => {
+    pairedClients = {};
+    savePairedClients();
+    res.json({ success: true });
 });
 // Static assets: HTML/JS/CSS must revalidate so an app update never reuses stale UI code.
 // Images/fonts keep the long cache.
@@ -1246,6 +1427,13 @@ function getSafeDownloads() {
     }
     return safeDownloads;
 }
+
+// Live progress is for the desktop UI only.
+io.use((socket, next) => {
+    const auth = authenticateClient(socket.handshake.auth?.token, socket.handshake.headers.origin);
+    if (auth?.role === 'desktop') return next();
+    next(new Error('auth_required'));
+});
 
 io.on('connection', (socket) => {
     socket.emit('initial-state', getSafeDownloads());

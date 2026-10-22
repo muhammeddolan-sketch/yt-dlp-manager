@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         UniGet Web Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.7.0
+// @version      1.8.0
 // @description  Adds a clean floating download button to all videos
 // @author       Antigravity
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      localhost
 // ==/UserScript==
 
@@ -173,97 +175,133 @@
     btnStart.onmouseover = () => btnStart.style.background = '#93c5fd';
     btnStart.onmouseout = () => btnStart.style.background = '#60a5fa';
 
-    document.getElementById('uniget-start').onclick = () => {
+    // ─── UniGet API (token + one-time pairing approved in the app) ───
+    const API_BASE = 'http://localhost:3000';
+    const TOKEN_KEY = 'unigetApiToken';
+
+    function gmJson(method, path, body, token) {
+        return new Promise((resolve, reject) => {
+            const headers = { 'Content-Type': 'application/json', 'X-UniGet-Client': 'userscript' };
+            if (token) headers['X-UniGet-Token'] = token;
+            GM_xmlhttpRequest({
+                method,
+                url: `${API_BASE}${path}`,
+                headers,
+                data: body ? JSON.stringify(body) : undefined,
+                onload: (response) => {
+                    let data = null;
+                    try { data = JSON.parse(response.responseText); } catch (e) {}
+                    resolve({ status: response.status, data });
+                },
+                onerror: () => reject(new Error('UniGet sunucusu kapalı olabilir. Lütfen uygulamayı açın.'))
+            });
+        });
+    }
+
+    async function pairWithApp() {
+        const start = await gmJson('POST', '/api/pair', {});
+        if (start.status === 429) throw new Error('UniGet başka bir bağlantı isteğini bekliyor veya istek reddedildi.');
+        if (!start.data || !start.data.requestId) throw new Error('UniGet bağlantı onayı açılamadı.');
+        progressText('UniGet uygulamasında onaylayın...');
+        const deadline = Date.now() + 125000;
+        while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const poll = await gmJson('POST', '/api/pair/poll', { requestId: start.data.requestId });
+            if (poll.status === 404) break;
+            if (poll.data && poll.data.status === 'approved' && poll.data.token) {
+                GM_setValue(TOKEN_KEY, poll.data.token);
+                return poll.data.token;
+            }
+            if (poll.data && poll.data.status === 'denied') throw new Error('UniGet bağlantı isteği reddedildi.');
+        }
+        throw new Error('UniGet bağlantı isteği zaman aşımına uğradı.');
+    }
+
+    async function api(method, path, body) {
+        let token = GM_getValue(TOKEN_KEY, '');
+        let res = await gmJson(method, path, body, token);
+        if (res.status === 401) {
+            GM_setValue(TOKEN_KEY, '');
+            token = await pairWithApp();
+            res = await gmJson(method, path, body, token);
+        }
+        if (res.status >= 400 || !res.data || res.data.error) {
+            throw new Error((res.data && res.data.error) || `HTTP ${res.status}`);
+        }
+        return res.data;
+    }
+
+    function progressText(text) {
+        btnStart.innerText = text;
+    }
+
+    function resetStartButton() {
+        btnStart.innerText = 'İndir';
+        btnStart.disabled = false;
+    }
+
+    btnStart.onclick = async (e) => {
+        // Page scripts must not be able to queue downloads with fake clicks.
+        if (!e.isTrusted) return;
         const videoUrl = window.location.href;
         const quality = document.getElementById('uniget-quality').value;
         const isPlaylist = document.getElementById('uniget-playlist').checked;
         const hasSubtitles = document.getElementById('uniget-subs').checked;
-        
+
         btnStart.innerText = 'İşleniyor...';
         btnStart.disabled = true;
-        
-        GM_xmlhttpRequest({
-            method: "POST",
-            url: "http://localhost:3000/api/info",
-            headers: { "Content-Type": "application/json", "X-UniGet-Client": "userscript" },
-            data: JSON.stringify({ url: videoUrl }),
-            onload: function(response) {
-                try {
-                    const info = JSON.parse(response.responseText);
-                    if (info.error) throw new Error(info.error);
-                    
-                    GM_xmlhttpRequest({
-                        method: "POST",
-                        url: "http://localhost:3000/api/download",
-                        headers: { "Content-Type": "application/json", "X-UniGet-Client": "userscript" },
-                        data: JSON.stringify({ url: videoUrl, title: info.title, quality: quality, isPlaylist: isPlaylist, hasSubtitles: hasSubtitles }),
-                        onload: function(dlResponse) {
-                            try {
-                                const dlData = JSON.parse(dlResponse.responseText);
-                                btnStart.style.display = 'none';
-                                document.getElementById('uniget-cancel').innerText = 'Kapat/Gizle';
-                                
-                                const progCont = document.getElementById('uniget-progress-container');
-                                const progText = document.getElementById('uniget-prog-text');
-                                const progPct = document.getElementById('uniget-prog-pct');
-                                const progBar = document.getElementById('uniget-prog-bar');
-                                
-                                progCont.style.display = 'flex';
-                                progBar.style.width = '0%';
-                                progBar.style.background = '#60a5fa';
-                                
-                                pollTimer = setInterval(() => {
-                                    GM_xmlhttpRequest({
-                                        method: "GET",
-                                        url: `http://localhost:3000/api/status/${dlData.id}`,
-                                        onload: function(r) {
-                                            try {
-                                                const dlState = JSON.parse(r.responseText);
-                                                if (dlState.error) return;
-                                                progPct.innerText = `%${dlState.progress || 0}`;
-                                                progBar.style.width = `${dlState.progress || 0}%`;
-                                                
-                                                if (dlState.status === 'completed') {
-                                                    clearInterval(pollTimer);
-                                                    progText.innerText = 'Tamamlandı!';
-                                                    progBar.style.background = '#4ade80';
-                                                    setTimeout(() => { 
-                                                        popup.style.display = 'none'; 
-                                                        btn.style.display = 'block'; 
-                                                        progCont.style.display = 'none'; 
-                                                        btnStart.style.display = 'block'; 
-                                                        document.getElementById('uniget-cancel').innerText = 'İptal'; 
-                                                        btnStart.innerText = 'İndir';
-                                                        btnStart.disabled = false;
-                                                    }, 4000);
-                                                } else if (dlState.status.toLowerCase().includes('hata') || dlState.status.startsWith('error:') || dlState.status === 'failed') {
-                                                    clearInterval(pollTimer);
-                                                    progText.innerText = (dlState.errorDetail || dlState.status.replace('error:', '') || 'Hata olustu!').slice(0, 120);
-                                                    progBar.style.background = '#f87171';
-                                                } else {
-                                                    progText.innerText = dlState.speed ? `${dlState.speed} - ${dlState.eta || '--'}` : 'İndiriliyor...';
-                                                }
-                                            } catch(e) {}
-                                        }
-                                    });
-                                }, 1000);
-                            } catch(err) {
-                                btnStart.innerText = 'İndir';
-                                btnStart.disabled = false;
-                            }
-                        }
-                    });
-                } catch(err) {
-                    alert('Hata: Video bilgisi alınamadı.');
-                    btnStart.innerText = 'İndir';
-                    btnStart.disabled = false;
-                }
-            },
-            onerror: function() {
-                alert('YT-DLM Sunucusu kapalı olabilir. Lütfen uygulamayı açın.');
-                btnStart.innerText = 'İndir';
-                btnStart.disabled = false;
+
+        let dlData;
+        try {
+            const info = await api('POST', '/api/info', { url: videoUrl });
+            dlData = await api('POST', '/api/download', { url: videoUrl, title: info.title, quality, isPlaylist, hasSubtitles });
+        } catch (err) {
+            alert(`UniGet: ${err.message}`);
+            resetStartButton();
+            return;
+        }
+
+        btnStart.style.display = 'none';
+        document.getElementById('uniget-cancel').innerText = 'Kapat/Gizle';
+
+        const progCont = document.getElementById('uniget-progress-container');
+        const progText = document.getElementById('uniget-prog-text');
+        const progPct = document.getElementById('uniget-prog-pct');
+        const progBar = document.getElementById('uniget-prog-bar');
+
+        progCont.style.display = 'flex';
+        progBar.style.width = '0%';
+        progBar.style.background = '#60a5fa';
+
+        pollTimer = setInterval(async () => {
+            let dlState;
+            try {
+                dlState = await api('GET', `/api/status/${encodeURIComponent(dlData.id)}`);
+            } catch (e) {
+                return;
             }
-        });
+            progPct.innerText = `%${dlState.progress || 0}`;
+            progBar.style.width = `${dlState.progress || 0}%`;
+            const status = String(dlState.status || '');
+            if (status === 'completed') {
+                clearInterval(pollTimer);
+                progText.innerText = 'Tamamlandı!';
+                progBar.style.background = '#4ade80';
+                setTimeout(() => {
+                    popup.style.display = 'none';
+                    btn.style.display = 'block';
+                    progCont.style.display = 'none';
+                    btnStart.style.display = 'block';
+                    document.getElementById('uniget-cancel').innerText = 'İptal';
+                    resetStartButton();
+                }, 4000);
+            } else if (status.toLowerCase().includes('hata') || status.startsWith('error:') || status === 'failed') {
+                clearInterval(pollTimer);
+                progText.innerText = (dlState.errorDetail || status.replace('error:', '') || 'Hata olustu!').slice(0, 120);
+                progBar.style.background = '#f87171';
+            } else {
+                progText.innerText = dlState.speed ? `${dlState.speed} - ${dlState.eta || '--'}` : 'İndiriliyor...';
+            }
+        }, 1000);
     };
 })();

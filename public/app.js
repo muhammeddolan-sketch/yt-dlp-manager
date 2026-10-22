@@ -1,6 +1,19 @@
 // UniGet Pro - Core Application Logic
 window.addEventListener('load', () => {
-    const socket = typeof io !== 'undefined' ? io({ transports: ['websocket', 'polling'] }) : null;
+    // The local API needs the per-install token, which only the Electron main
+    // process hands out (never over HTTP).
+    const apiTokenPromise = (window.unigetAPI && typeof window.unigetAPI.getApiToken === 'function')
+        ? Promise.resolve(window.unigetAPI.getApiToken()).catch(() => null)
+        : Promise.resolve(null);
+    async function apiFetch(url, options = {}) {
+        const token = await apiTokenPromise;
+        const headers = new Headers(options.headers || {});
+        if (token) headers.set('X-UniGet-Token', token);
+        return fetch(url, { ...options, headers });
+    }
+    const socket = typeof io !== 'undefined'
+        ? io({ transports: ['websocket', 'polling'], auth: (cb) => { apiTokenPromise.then(token => cb({ token })); } })
+        : null;
     const addModal = document.getElementById('addModal');
     const addForm = document.getElementById('addForm');
     const addUrlInput = document.getElementById('addUrlInput');
@@ -78,7 +91,7 @@ window.addEventListener('load', () => {
 
     async function syncVisibleAppVersion() {
         try {
-            const res = await fetch('/api/health', { headers: apiClientHeaders });
+            const res = await apiFetch('/api/health', { headers: apiClientHeaders });
             if (!res.ok) return;
             const data = await res.json();
             if (!data.version) return;
@@ -206,7 +219,7 @@ window.addEventListener('load', () => {
 
     async function refreshDownloads() {
         try {
-            const res = await fetch('/api/downloads', { headers: apiClientHeaders });
+            const res = await apiFetch('/api/downloads', { headers: apiClientHeaders });
             if (!res.ok) return;
             const data = await res.json();
             // Skip the full reconcile when nothing meaningful changed
@@ -290,12 +303,12 @@ window.addEventListener('load', () => {
             }
         });
     } else if (autostartCheck) {
-        fetch('/api/autostart/status').then(r => r.json()).then(data => {
+        apiFetch('/api/autostart/status').then(r => r.json()).then(data => {
             autostartCheck.checked = data.enabled;
         }).catch(e => console.warn('Autostart error:', e));
 
         autostartCheck.addEventListener('change', async () => {
-            await fetch('/api/autostart', {
+            await apiFetch('/api/autostart', {
                 method: 'POST',
                 headers: apiJsonHeaders,
                 body: JSON.stringify({ enabled: autostartCheck.checked })
@@ -314,7 +327,7 @@ window.addEventListener('load', () => {
     // globalHotkeyInput already declared above
 
     if (downloadDirInput && saveDirBtn) {
-        fetch('/api/settings').then(r => r.json()).then(data => {
+        apiFetch('/api/settings').then(r => r.json()).then(data => {
             if (data.downloadDir) downloadDirInput.value = data.downloadDir;
             if (powerModeSelect && data.powerMode) powerModeSelect.value = data.powerMode;
             if (rateLimitInput && typeof data.rateLimitKbps !== 'undefined') rateLimitInput.value = data.rateLimitKbps;
@@ -353,7 +366,7 @@ window.addEventListener('load', () => {
         saveDirBtn.addEventListener('click', async () => {
             saveDirBtn.disabled = true;
             try {
-                const res = await fetch('/api/settings', {
+                const res = await apiFetch('/api/settings', {
                     method: 'POST',
                     headers: apiJsonHeaders,
                     body: JSON.stringify({
@@ -404,7 +417,7 @@ window.addEventListener('load', () => {
     async function refreshToolStatus() {
         if (!toolStatus) return;
         try {
-            const res = await fetch('/api/tools');
+            const res = await apiFetch('/api/tools');
             const data = await res.json();
             const ffmpegReady = !!(data.ffmpeg && data.ffmpeg.available);
             const ytDlpVersion = data.ytDlp && data.ytDlp.version ? data.ytDlp.version : 'bulunamadı';
@@ -427,7 +440,7 @@ window.addEventListener('load', () => {
             installFfmpegBtn.disabled = true;
             if (toolStatus) toolStatus.textContent = 'FFmpeg indiriliyor ve kuruluyor...';
             try {
-                const res = await fetch('/api/tools/install-ffmpeg', {
+                const res = await apiFetch('/api/tools/install-ffmpeg', {
                     method: 'POST',
                     headers: apiClientHeaders
                 });
@@ -449,7 +462,7 @@ window.addEventListener('load', () => {
             updateYtDlpBtn.disabled = true;
             if (toolStatus) toolStatus.textContent = 'yt-dlp indiriliyor ve güncelleniyor...';
             try {
-                const res = await fetch('/api/tools/update-ytdlp', {
+                const res = await apiFetch('/api/tools/update-ytdlp', {
                     method: 'POST',
                     headers: apiClientHeaders
                 });
@@ -513,7 +526,7 @@ window.addEventListener('load', () => {
 
         try {
             // 1) yt-dlp: indir / güncelle
-            const ytRes = await fetch('/api/tools/update-ytdlp', {
+            const ytRes = await apiFetch('/api/tools/update-ytdlp', {
                 method: 'POST',
                 headers: apiClientHeaders
             });
@@ -524,9 +537,9 @@ window.addEventListener('load', () => {
             if (toolStatus) toolStatus.textContent = 'FFmpeg kontrol ediliyor...';
             let tools = null;
             try {
-                tools = (await (await fetch('/api/tools')).json());
+                tools = (await (await apiFetch('/api/tools')).json());
                 if (tools && !(tools.ffmpeg && tools.ffmpeg.available)) {
-                    const ffRes = await fetch('/api/tools/install-ffmpeg', {
+                    const ffRes = await apiFetch('/api/tools/install-ffmpeg', {
                         method: 'POST',
                         headers: apiClientHeaders
                     });
@@ -540,7 +553,7 @@ window.addEventListener('load', () => {
 
             // 3) doğrula
             if (toolStatus) toolStatus.textContent = 'Araçlar doğrulanıyor...';
-            const verify = (await (await fetch('/api/tools')).json());
+            const verify = (await (await apiFetch('/api/tools')).json());
             const fixed = verify && verify.ytDlp && verify.ytDlp.version;
             if (!fixed) throw new Error('Onarım doğrulanamadı; Defender yt-dlp.exe dosyasını silmiş olabilir.');
 
@@ -548,7 +561,7 @@ window.addEventListener('load', () => {
             repairFailedIds.forEach((id) => {
                 const dl = activeDownloads[id];
                 if (dl && (dl.status === 'failed' || String(dl.status).startsWith('error:'))) {
-                    fetch('/api/action', {
+                    apiFetch('/api/action', {
                         method: 'POST',
                         headers: apiJsonHeaders,
                         body: JSON.stringify({ id, action: 'resume' })
@@ -587,7 +600,7 @@ window.addEventListener('load', () => {
 
     async function checkToolsOnStartup() {
         try {
-            const res = await fetch('/api/tools');
+            const res = await apiFetch('/api/tools');
             const data = await res.json();
             if (data && data.ytDlp && !data.ytDlp.version) showRepairBanner();
             if (appVersionEl && data.appVersion) appVersionEl.textContent = `v${data.appVersion}`;
@@ -603,7 +616,7 @@ window.addEventListener('load', () => {
 
     async function refreshExtensionStatus() {
         try {
-            const res = await fetch('/api/extension/status', { headers: apiClientHeaders });
+            const res = await apiFetch('/api/extension/status', { headers: apiClientHeaders });
             if (!res.ok) return;
             const data = await res.json();
             extensionLatestVersion = data.latestVersion || null;
@@ -632,7 +645,7 @@ window.addEventListener('load', () => {
                 if (window.unigetAPI && typeof window.unigetAPI.openExtensionFolder === 'function') {
                     await window.unigetAPI.openExtensionFolder();
                 } else {
-                    await fetch('/api/extension/open-folder', { method: 'POST', headers: apiClientHeaders });
+                    await apiFetch('/api/extension/open-folder', { method: 'POST', headers: apiClientHeaders });
                 }
             } catch (e) { /* ignore */ }
             refreshExtensionStatus();
@@ -685,7 +698,7 @@ window.addEventListener('load', () => {
                     const state = await updateBridge.checkForUpdates();
                     renderUpdateState(state || { status: 'checking' });
                 } else {
-                    const res = await fetch('/api/update-check', { headers: apiClientHeaders });
+                    const res = await apiFetch('/api/update-check', { headers: apiClientHeaders });
                     const data = await res.json();
                     if (!res.ok || data.error) throw new Error(data.error || 'Güncelleme kontrolü başarısız');
                     if (data.hasUpdate) {
@@ -722,7 +735,7 @@ window.addEventListener('load', () => {
     }
 
     async function validateMediaBeforeDownload(url) {
-        const res = await fetch('/api/validate-media', {
+        const res = await apiFetch('/api/validate-media', {
             method: 'POST',
             headers: apiJsonHeaders,
             body: JSON.stringify({ url })
@@ -797,6 +810,33 @@ window.addEventListener('load', () => {
             panel.hidden = !active;
         });
         if (settingsBody) settingsBody.scrollTop = 0;
+        if (name === 'connection') refreshPairedClients();
+    }
+
+    const pairedClientsStatus = document.getElementById('pairedClientsStatus');
+    const revokePairedClientsBtn = document.getElementById('revokePairedClientsBtn');
+    async function refreshPairedClients() {
+        if (!pairedClientsStatus) return;
+        try {
+            const res = await apiFetch('/api/pair/clients', { headers: apiClientHeaders });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            pairedClientsStatus.innerText = data.count
+                ? `${data.count} yardımcı bağlı.`
+                : 'Bağlı yardımcı yok. Tarayıcıda ilk indirmede onay istenir.';
+            if (revokePairedClientsBtn) revokePairedClientsBtn.disabled = !data.count;
+        } catch (e) {
+            pairedClientsStatus.innerText = 'Bağlantı durumu okunamadı.';
+        }
+    }
+    if (revokePairedClientsBtn) {
+        revokePairedClientsBtn.addEventListener('click', async () => {
+            if (!confirm('Tüm tarayıcı yardımcılarının bağlantısı kaldırılsın mı? Bir sonraki indirmede yeniden onay istenir.')) return;
+            try {
+                await apiFetch('/api/pair/revoke-all', { method: 'POST', headers: apiClientHeaders });
+            } catch (e) {}
+            refreshPairedClients();
+        });
     }
     settingsTabs.forEach((tab) => {
         tab.addEventListener('click', () => {
@@ -893,13 +933,13 @@ window.addEventListener('load', () => {
     // Global Actions
     if (openFolderGlobal) {
         openFolderGlobal.addEventListener('click', () => {
-            fetch('/api/open-folder', { method: 'POST', headers: apiClientHeaders }).catch(e => console.error(e));
+            apiFetch('/api/open-folder', { method: 'POST', headers: apiClientHeaders }).catch(e => console.error(e));
         });
     }
 
     if (clearCompletedBtn) {
         clearCompletedBtn.addEventListener('click', () => {
-            fetch('/api/clear-completed', { method: 'POST', headers: apiClientHeaders }).catch(e => console.error(e));
+            apiFetch('/api/clear-completed', { method: 'POST', headers: apiClientHeaders }).catch(e => console.error(e));
         });
     }
 
@@ -947,13 +987,13 @@ window.addEventListener('load', () => {
 
             if (btn.classList.contains('pause-btn')) {
                 playSound('toggle');
-                fetch('/api/action', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({id: dlId, action: 'pause'}) });
+                apiFetch('/api/action', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({id: dlId, action: 'pause'}) });
             } else if (btn.classList.contains('resume-btn')) {
                 playSound('start');
-                fetch('/api/action', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({id: dlId, action: 'resume'}) });
+                apiFetch('/api/action', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({id: dlId, action: 'resume'}) });
             } else if (btn.classList.contains('cancel-btn')) {
                 playSound('toggle');
-                fetch('/api/action', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({id: dlId, action: 'cancel'}) });
+                apiFetch('/api/action', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({id: dlId, action: 'cancel'}) });
             } else if (btn.classList.contains('details-btn')) {
                 playSound('open');
                 activeDetailsId = dlId;
@@ -961,20 +1001,20 @@ window.addEventListener('load', () => {
                 if (activeDownloads[dlId]) updateDetailsModal(activeDownloads[dlId]);
             } else if (btn.classList.contains('play-file-btn')) {
                 playSound('open');
-                fetch('/api/open-file', {
+                apiFetch('/api/open-file', {
                     method: 'POST',
                     headers: apiJsonHeaders,
                     body: JSON.stringify({ id: dlId })
                 }).catch(e => console.error(e));
             } else if (btn.classList.contains('reveal-btn')) {
                 playSound('open');
-                fetch('/api/reveal-file', {
+                apiFetch('/api/reveal-file', {
                     method: 'POST',
                     headers: apiJsonHeaders,
                     body: JSON.stringify({ id: dlId })
                 }).catch(e => console.error(e));
             } else if (btn.classList.contains('open-btn')) {
-                fetch('/api/open-folder', { method: 'POST', headers: apiClientHeaders });
+                apiFetch('/api/open-folder', { method: 'POST', headers: apiClientHeaders });
             } else if (btn.classList.contains('copy-error-btn')) {
                 const dl = activeDownloads[dlId];
                 const ok = await copyText(dl ? `${dl.title || 'Download'}\n${dl.url || ''}\n${dl.errorDetail || dl.status || ''}` : '');
@@ -1033,13 +1073,13 @@ window.addEventListener('load', () => {
             if (urls.length > 1) {
                 for (const u of urls) {
                     try {
-                        const res = await fetch('/api/info', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: u }) });
+                        const res = await apiFetch('/api/info', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: u }) });
                         const info = await res.json();
                         if (info.error || info.downloadable === false || info.mediaType === 'image') continue;
                         const q = localStorage.getItem('uniget_last_quality') || 'best';
                         const battery = navigator.getBattery ? await navigator.getBattery().catch(() => null) : null;
                         const isOnBattery = battery ? !battery.charging : false;
-                        const dr = await fetch('/api/download', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: info.url, title: info.title, thumbnail: info.thumbnail || null, quality: q, isPlaylist: false, autoOpen: false, startTime: null, endTime: null, isOnBattery, profile: 'custom' }) });
+                        const dr = await apiFetch('/api/download', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: info.url, title: info.title, thumbnail: info.thumbnail || null, quality: q, isPlaylist: false, autoOpen: false, startTime: null, endTime: null, isOnBattery, profile: 'custom' }) });
                         const dd = await dr.json();
                         if (dd && dd.id) mergeDownload(dd.download || { ...dd, title: info.title, url: info.url });
                     } catch (e) {}
@@ -1053,7 +1093,7 @@ window.addEventListener('load', () => {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-            const res = await fetch('/api/info', {
+            const res = await apiFetch('/api/info', {
                 method: 'POST',
                 headers: apiJsonHeaders,
                 body: JSON.stringify({ url }),
@@ -1073,7 +1113,7 @@ window.addEventListener('load', () => {
                 const battery = navigator.getBattery ? await navigator.getBattery().catch(() => null) : null;
                 const isOnBattery = battery ? !battery.charging : false;
 
-                const downloadRes = await fetch('/api/download', {
+                const downloadRes = await apiFetch('/api/download', {
                     method: 'POST',
                     headers: apiJsonHeaders,
                     body: JSON.stringify({
@@ -1146,7 +1186,7 @@ window.addEventListener('load', () => {
                 if (selectedProfile === 'archive_1080') selectedQuality = '1080';
                 if (selectedProfile === 'podcast_audio') selectedQuality = 'audio';
 
-                const downloadRes = await fetch('/api/download', {
+                const downloadRes = await apiFetch('/api/download', {
                     method: 'POST',
                     headers: apiJsonHeaders,
                     body: JSON.stringify({ 

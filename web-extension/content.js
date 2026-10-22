@@ -538,8 +538,11 @@
         requestPositionUpdate();
     });
 
+    // Page scripts can dispatch synthetic clicks on our injected controls;
+    // only real user input may queue downloads or trigger UniGet pairing.
     btn.onclick = (e) => {
         e.stopPropagation();
+        if (!e.isTrusted) return;
         const video = getBestVideo();
         targetUrl = getCanonicalMediaUrl(video);
         if (quickChk.checked) {
@@ -550,12 +553,12 @@
         openPopup(btn.getBoundingClientRect(), video, targetUrl);
     };
 
-    btnStart.onclick = () => queueDownload();
+    btnStart.onclick = (e) => { if (e.isTrusted) queueDownload(); };
 
     // Enter anywhere in the panel starts the download, like a dialog
     [qualitySelect, startTimeInp, endTimeInp].forEach((el) => {
         el.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && e.isTrusted) {
                 e.preventDefault();
                 btnStart.disabled ? null : queueDownload();
             }

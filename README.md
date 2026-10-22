@@ -55,6 +55,8 @@ Alternatively, load the latest `UniGet-Extension-v<version>.zip` (unpacked) into
 ## Security Notes
 
 - The local API binds only to `127.0.0.1`; state-changing requests require the `X-UniGet-Client` header and cross-origin access is restricted to the UniGet UI and browser extensions.
+- Every API call (except `/api/health`) needs a secret token. The desktop UI receives a per-install token (`api-token` in the UniGet data folder) from the Electron main process; it is never served over HTTP.
+- Browser helpers (extension, userscript) pair once: on the first download UniGet shows an **Allow / Deny** dialog and gives the approved helper its own token. Paired helpers can only queue and inspect downloads — they cannot read or change settings. Remove all pairings in **Settings → Connection → Connected browser helpers**.
 - Requests whose `Host` header is not `127.0.0.1`/`localhost` on the UniGet port are rejected (DNS rebinding protection).
 - Output templates must be relative paths; absolute paths and `..` are rejected so downloads cannot be written outside the download folder.
 - The auto-downloaded `yt-dlp.exe` is verified against the release's `SHA2-256SUMS` before use.
