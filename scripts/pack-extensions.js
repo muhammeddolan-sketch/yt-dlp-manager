@@ -21,10 +21,12 @@ function stageExtension(dest) {
 function zipDir(dir, outZip) {
     fs.rmSync(outZip, { force: true });
     if (process.platform === 'win32') {
+        // Paths via the environment: "$" or quotes in a folder name would
+        // otherwise be interpreted by PowerShell.
         execFileSync('powershell.exe', [
-            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
-            `Compress-Archive -Path "${dir}\\*" -DestinationPath "${outZip}" -Force`
-        ], { stdio: 'inherit' });
+            '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
+            'Compress-Archive -Path (Join-Path $env:UNIGET_PACK_SRC "*") -DestinationPath $env:UNIGET_PACK_ZIP -Force'
+        ], { stdio: 'inherit', env: { ...process.env, UNIGET_PACK_SRC: dir, UNIGET_PACK_ZIP: outZip } });
     } else {
         execFileSync('zip', ['-r', outZip, '.'], { cwd: dir, stdio: 'inherit' });
     }

@@ -129,6 +129,18 @@ async function startLongDownload(title) {
         return 'paths with spaces extracted';
     });
 
+    await step('Extension packaging on Windows', async () => {
+        execFileSync(process.execPath, [path.join(rootDir, 'scripts', 'pack-extensions.js')], { cwd: rootDir, stdio: 'ignore' });
+        const version = require(path.join(rootDir, 'package.json')).version;
+        for (const name of [`UniGet-Extension-v${version}.zip`, `UniGet-Firefox-Extension-v${version}.zip`]) {
+            const entries = execFileSync('tar.exe', ['-tf', path.join(rootDir, name)]).toString().split(/\r?\n/);
+            for (const file of ['manifest.json', 'background.js', 'content.js']) {
+                assert.ok(entries.includes(file), `${name} lacks ${file}: ${entries.join(',')}`);
+            }
+        }
+        return 'chrome + firefox zips';
+    });
+
     await step('MP3 extraction with bundled FFmpeg', async () => {
         const { data } = await post('/api/download', { url: VIDEO_URL, title: 'audio', quality: 'audio' });
         const done = await until(data.id, (s) => s.status === 'completed', 'audio download');
