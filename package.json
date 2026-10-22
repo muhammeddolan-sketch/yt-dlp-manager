@@ -9,7 +9,7 @@
     "dist": "electron-builder",
     "dist:win": "electron-builder --win nsis",
     "dist:publish": "electron-builder --win nsis --publish always",
-    "test": "node --check server.js && node --check main.js && node --check preload.js && node --check public/app.js && node --check public/uniget-extension.user.js && node --check web-extension/background.js && node --check web-extension/content.js && node tests/api-smoke.test.js",
+    "test": "node --check server.js && node --check main.js && node --check preload.js && node --check public/app.js && node --check public/uniget-extension.user.js && node --check web-extension/background.js && node --check web-extension/content.js && node tests/api-smoke.test.js && node tests/runner-e2e.test.js",
     "pack:extension": "node scripts/pack-extensions.js chrome",
     "pack:extension:firefox": "node scripts/pack-extensions.js firefox",
     "pack:extension:all": "node scripts/pack-extensions.js"

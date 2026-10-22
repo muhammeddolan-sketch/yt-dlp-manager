@@ -455,12 +455,12 @@
    ============================================================ */
 
 .uniget-mini-btn {
-    background-color: rgba(250, 253, 255, 0.70) !important;
+    background-color: rgba(250, 253, 255, 0.88) !important;
     background-image:
         linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.10) 46%, rgba(220, 248, 255, 0.04) 100%),
         linear-gradient(120deg, rgba(190, 240, 255, 0.18), transparent 60%) !important;
-    -webkit-backdrop-filter: blur(14px) saturate(1.45);
-    backdrop-filter: blur(14px) saturate(1.45);
+    /* No backdrop blur: the button sits over a playing video, where a blur
+       is re-rendered on every frame. */
     border: 1px solid rgba(255, 255, 255, 0.74) !important;
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.95),

@@ -2614,3 +2614,39 @@ input:focus,
         inset 0 1px 0 rgba(230, 250, 255, 0.40),
         0 0 0 1px rgba(210, 248, 255, 0.16);
 }
+
+/* ============================================================
+   Performans: main.js GPU hızlandırmayı kapattığı için backdrop-filter
+   yazılımla çizilir. Kaydırılan ve sık güncellenen yüzeylerde (kartlar,
+   iç içe arama kutusu, boş durum) bulanıklık her karede yeniden
+   hesaplanıp CPU'yu yorar; burada kapatılır, cam görünümü daha opak
+   dolguyla korunur. Sabit paneller (kenar çubuğu, araç çubuğu,
+   diyaloglar) bulanık kalır.
+   ============================================================ */
+.download-card,
+.empty-state,
+.library-search {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+.download-card { background-color: rgba(242, 251, 255, 0.64); }
+.download-card:hover { background-color: rgba(248, 253, 255, 0.72); }
+.download-card.completed { background-color: rgba(244, 255, 250, 0.64); }
+.empty-state { background-color: rgba(255, 255, 255, 0.5); }
+.library-search { background-color: rgba(255, 255, 255, 0.5); }
+
+[data-theme="dark"] .download-card { background-color: rgba(8, 30, 44, 0.68); }
+[data-theme="dark"] .download-card:hover { background-color: rgba(12, 40, 56, 0.76); }
+[data-theme="dark"] .download-card.completed { background-color: rgba(8, 38, 34, 0.68); }
+[data-theme="dark"] .empty-state { background-color: rgba(8, 30, 44, 0.62); }
+[data-theme="dark"] .library-search { background-color: rgba(8, 34, 48, 0.6); }
+
+@media (prefers-reduced-transparency: reduce) {
+    .sidebar,
+    .library-toolbar,
+    .modal-content {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+}

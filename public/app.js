@@ -385,22 +385,22 @@ window.addEventListener('load', () => {
                         globalHotkey: globalHotkeyInput ? globalHotkeyInput.value.trim() : ''
                     })
                 });
-                const data = await res.json();
-                if (data.success) {
-                    playSound('success');
-                    saveDirBtn.textContent = '✓ Kaydedildi';
-                    saveDirBtn.style.background = 'var(--success)';
-                    saveDirBtn.style.color = '#fff';
-                    setTimeout(() => {
-                        saveDirBtn.style.display = 'none';
-                        saveDirBtn.textContent = 'Kaydet';
-                        saveDirBtn.style.background = '';
-                        saveDirBtn.style.color = '';
-                    }, 1500);
-                }
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
+                playSound('success');
+                saveDirBtn.textContent = '✓ Kaydedildi';
+                saveDirBtn.style.background = 'var(--success)';
+                saveDirBtn.style.color = '#fff';
+                setTimeout(() => {
+                    saveDirBtn.style.display = 'none';
+                    saveDirBtn.textContent = 'Kaydet';
+                    saveDirBtn.style.background = '';
+                    saveDirBtn.style.color = '';
+                }, 1500);
             } catch (e) {
                 playSound('error');
                 console.error('Settings save error:', e);
+                alert(`Ayarlar kaydedilemedi: ${e.message}`);
             } finally {
                 saveDirBtn.disabled = false;
             }
@@ -949,7 +949,12 @@ window.addEventListener('load', () => {
             if (!hk) return;
             try {
                 if (window.unigetAPI && window.unigetAPI.setHotkey) {
-                    await window.unigetAPI.setHotkey(hk);
+                    const result = await window.unigetAPI.setHotkey(hk);
+                    if (result && result.success === false) {
+                        playSound('error');
+                        alert(result.error || 'Kısayol ayarlanamadı');
+                        if (result.hotkey) globalHotkeyInput.value = result.hotkey;
+                    }
                 }
             } catch (e) {}
         });
@@ -1071,6 +1076,7 @@ window.addEventListener('load', () => {
         setAddBusy(true);
         try {
             if (urls.length > 1) {
+                let queued = 0;
                 for (const u of urls) {
                     try {
                         const res = await apiFetch('/api/info', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: u }) });
@@ -1081,17 +1087,22 @@ window.addEventListener('load', () => {
                         const isOnBattery = battery ? !battery.charging : false;
                         const dr = await apiFetch('/api/download', { method: 'POST', headers: apiJsonHeaders, body: JSON.stringify({ url: info.url, title: info.title, thumbnail: info.thumbnail || null, quality: q, isPlaylist: false, autoOpen: false, startTime: null, endTime: null, isOnBattery, profile: 'custom' }) });
                         const dd = await dr.json();
-                        if (dd && dd.id) mergeDownload(dd.download || { ...dd, title: info.title, url: info.url });
+                        if (dd && dd.id) {
+                            queued++;
+                            mergeDownload(dd.download || { ...dd, title: info.title, url: info.url });
+                        }
                     } catch (e) {}
                 }
+                if (!queued) throw new Error('Bağlantıların hiçbiri indirilebilir video/ses değil.');
                 closeAddModal();
                 playSound('success');
+                if (queued < urls.length) alert(`${queued}/${urls.length} bağlantı kuyruğa eklendi; diğerleri video/ses değil veya alınamadı.`);
                 return;
             }
 
             const url = urls[0];
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            const timeoutId = setTimeout(() => controller.abort(), 32000);
 
             const res = await apiFetch('/api/info', {
                 method: 'POST',
@@ -1119,6 +1130,7 @@ window.addEventListener('load', () => {
                     body: JSON.stringify({
                         url: info.url,
                         title: info.title,
+                        thumbnail: info.thumbnail || null,
                         quality: selectedQuality,
                         isPlaylist: addPlaylistCheck ? addPlaylistCheck.checked : false,
                         autoOpen: localStorage.getItem('uniget_auto_open') === 'true',
@@ -1175,7 +1187,8 @@ window.addEventListener('load', () => {
     // Confirm Download in Modal
     if (confirmDownload) {
         confirmDownload.addEventListener('click', async () => {
-            if (!currentVideoInfo) return;
+            if (!currentVideoInfo || confirmDownload.disabled) return;
+            confirmDownload.disabled = true;
 
             try {
                 const battery = (navigator.getBattery ? await navigator.getBattery().catch(() => null) : null);
@@ -1198,7 +1211,7 @@ window.addEventListener('load', () => {
                         autoOpen: modalAutoOpenCheck ? modalAutoOpenCheck.checked : true,
                         subtitles: (document.getElementById('modalSubtitlesCheck') || {}).checked === true,
                         subtitleLangs: (document.getElementById('modalSubtitleLang') || {}).value || '',
-                        scheduleAt: (document.getElementById('modalScheduleAt') || {}).value || null,
+                        scheduleAt: toIsoOrNull((document.getElementById('modalScheduleAt') || {}).value),
                         subtitleFormat: (document.getElementById('modalSubtitleFormat') || {}).value || 'best',
                         startTime: document.getElementById('modalStartTime') ? document.getElementById('modalStartTime').value.trim() : null,
                         endTime: document.getElementById('modalEndTime') ? document.getElementById('modalEndTime').value.trim() : null,
@@ -1218,9 +1231,30 @@ window.addEventListener('load', () => {
             } catch(e) {
                 playSound('error');
                 console.error('Download Trigger Error:', e);
+                alert(`${typeof t === 'function' ? t('error') : 'Hata'}: ${e.message}`);
+            } finally {
+                confirmDownload.disabled = false;
             }
         });
     }
+
+    // datetime-local has no zone; send an absolute time.
+    function toIsoOrNull(value) {
+        if (!value) return null;
+        const date = new Date(value);
+        return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+    }
+
+    // Escape closes the topmost open dialog.
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const open = [infoModal, detailsModal, settingsModal, setupModal, addModal]
+            .filter((modal) => modal && getComputedStyle(modal).display !== 'none');
+        const top = open[open.length - 1];
+        if (!top) return;
+        top.style.display = 'none';
+        if (top === detailsModal) activeDetailsId = null;
+    });
 
     // Socket.IO Events
     if (socket) {
@@ -1666,10 +1700,10 @@ window.addEventListener('load', () => {
 
     // Electron Clipboard Integration — only check on window focus, not polling
     let lastClipboardText = '';
-    function checkClipboard() {
-        if (!window.unigetAPI) return;
+    async function checkClipboard() {
+        if (!window.unigetAPI || typeof window.unigetAPI.readClipboardText !== 'function') return;
         try {
-            const text = window.unigetAPI.readClipboardText().trim();
+            const text = String(await window.unigetAPI.readClipboardText() || '').trim();
             if (text && text !== lastClipboardText &&
                 (text.includes('youtube.com/') || text.includes('youtu.be/') ||
                  text.includes('vimeo.com/') || text.includes('twitch.tv/'))) {

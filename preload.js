@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, clipboard, shell } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 const allowedExternalProtocols = new Set(['http:', 'https:']);
 
@@ -23,12 +23,13 @@ contextBridge.exposeInMainWorld('unigetAPI', {
         ipcRenderer.on('update-status', listener);
         return () => ipcRenderer.removeListener('update-status', listener);
     },
-    readClipboardText: () => clipboard.readText(),
+    // Sandboxed preloads have no clipboard/shell modules: go through main.
+    readClipboardText: () => ipcRenderer.invoke('clipboard:read-text'),
     openExternal: (url) => {
         try {
             const parsed = new URL(url);
             if (!allowedExternalProtocols.has(parsed.protocol)) return false;
-            shell.openExternal(parsed.toString());
+            ipcRenderer.invoke('open-external', parsed.toString());
             return true;
         } catch {
             return false;

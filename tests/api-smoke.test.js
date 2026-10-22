@@ -365,7 +365,10 @@ async function statusFor(url, options) {
         assert.ok(mainSrc.includes("'get-api-token'") && mainSrc.includes('pair-request'), 'main.js token/eşleşme kanallarını işlemiyor');
         assert.ok(indexHtml.includes('id="revokePairedClientsBtn"'), 'bağlantıları kaldır düğmesi eksik');
     } finally {
+        // Wait for exit: the server saves its state while shutting down.
+        const exited = new Promise((resolve) => child.once('exit', resolve));
         child.kill('SIGTERM');
+        await exited;
         fs.rmSync(appDataDir, { recursive: true, force: true });
         fs.rmSync(downloadsDir, { recursive: true, force: true });
     }

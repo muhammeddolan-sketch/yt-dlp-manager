@@ -194,7 +194,7 @@ myBrowser.contextMenus.onClicked.addListener((info, tab) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url }),
-            timeout: 25000
+            timeout: 32000
         })
         .then(data => {
             if (!data || data.error) throw new Error(data?.error || 'Media could not be verified');

@@ -52,6 +52,13 @@ UniGet keeps a ready-to-load copy of the extension in `%APPDATA%\uniget\extensio
 
 Alternatively, load the latest `UniGet-Extension-v<version>.zip` (unpacked) into your Chromium-based browser (Brave, Chrome, Edge) via "Load unpacked". For Firefox use `UniGet-Firefox-Extension-v<version>.zip`. The extension connects to the local server to send downloads instantly.
 
+## Behaviour Notes
+
+- Downloads interrupted by quitting (or a crash) are restored as **paused** on the next start and continue from the partial file when resumed.
+- **Clear list** only hides entries; the files stay on disk and are not re-added by the library scan. Files older than the history retention period are not listed.
+- Pausing, cancelling and quitting stop yt-dlp together with its FFmpeg child processes.
+- Without FFmpeg, "audio only" keeps the original audio stream (no MP3 conversion) and trimming is unavailable.
+
 ## Security Notes
 
 - The local API binds only to `127.0.0.1`; state-changing requests require the `X-UniGet-Client` header and cross-origin access is restricted to the UniGet UI and browser extensions.
@@ -59,7 +66,7 @@ Alternatively, load the latest `UniGet-Extension-v<version>.zip` (unpacked) into
 - Browser helpers (extension, userscript) pair once: on the first download UniGet shows an **Allow / Deny** dialog and gives the approved helper its own token. Paired helpers can only queue and inspect downloads — they cannot read or change settings. Remove all pairings in **Settings → Connection → Connected browser helpers**.
 - Requests whose `Host` header is not `127.0.0.1`/`localhost` on the UniGet port are rejected (DNS rebinding protection).
 - Output templates must be relative paths; absolute paths and `..` are rejected so downloads cannot be written outside the download folder.
-- The auto-downloaded `yt-dlp.exe` is verified against the release's `SHA2-256SUMS` before use.
+- The auto-downloaded `yt-dlp.exe` is verified against the release's `SHA2-256SUMS`, and the portable FFmpeg package against its published `.sha256`, before use.
 - The optional **post-download command** is executed by your local shell after a download completes. `{file}` and `{dir}` are substituted as safely quoted arguments, but only enter commands you trust.
 
 ## License
